@@ -17,6 +17,7 @@ LIB_DIR          = _build/default/lib
 REL_DIR          = _build/default/rel
 PKG_VARS_CONFIG  = pkg.vars.config
 OVERLAY_VARS    ?= --overlay_vars=rel/vars.config
+TEMPLATE_SCRIPT := ./rel/overlay.escript
 
 GIT_URL := $(shell git config --get remote.origin.url | sed -e 's/\(\/[^/]*\)$$//g')
 GIT_URL := $(shell if [ "${GIT_URL}" = "file:/" ]; then echo 'ssh://git@git.plgrid.pl:7999/vfs'; else echo ${GIT_URL}; fi)
@@ -34,7 +35,7 @@ all: rel
 compile:
 	$(REBAR) compile
 
-release: compile
+release: compile template
 	$(REBAR) release $(OVERLAY_VARS)
 
 upgrade:
@@ -45,6 +46,10 @@ clean: relclean pkgclean
 
 distclean: clean
 	$(REBAR) clean --all
+
+.PHONY: template
+template:
+	$(TEMPLATE_SCRIPT) rel/vars.config ./rel/files/vm.args.template
 
 ##
 ## Release targets
