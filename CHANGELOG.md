@@ -4,6 +4,10 @@
 CHANGELOG
 ---------
 
+### 3.0.0-rc7
+
+* Migrate to rebar3
+
 ### 1.0.1
 
 * VFS-1528 Use monotonic time instead of system time
