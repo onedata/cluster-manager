@@ -4,6 +4,10 @@
 CHANGELOG
 ---------
 
+### 3.0.0-rc8
+
+* Releasing new version 3.0.0-rc8
+
 ### 3.0.0-rc7
 
 * Migrate to rebar3
