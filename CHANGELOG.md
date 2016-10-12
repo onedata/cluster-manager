@@ -4,13 +4,20 @@
 CHANGELOG
 ---------
 
+### 3.0.0-rc9
+
+* Releasing new version 3.0.0-rc9
+
+
 ### 3.0.0-rc8
 
 * Releasing new version 3.0.0-rc8
 
+
 ### 3.0.0-rc7
 
 * Migrate to rebar3
+
 
 ### 1.0.1
 
@@ -26,7 +33,6 @@ CHANGELOG
 
 ### 1.0.0
 
-
 * VFS-1145 Integrate SSL2 into oneprovider.
 * VFS-1129 Add deb build dependencies
 * VFS-1129 Update node_package
@@ -34,7 +40,6 @@ CHANGELOG
 * VFS-1025, add kernel ports envs
 * VFS-1053 Selecting explicit node for mnesia to join, instead of finding it randomly
 * Moving code from worker application
-
 
 
 ________
