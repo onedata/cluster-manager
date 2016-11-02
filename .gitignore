@@ -9,15 +9,13 @@
 *.beam
 *.pyc
 
-rel/cluster_manager
-rel/test_cluster
-
 test/eunit_results
 
-deps
 doc
 logs
-ebin
 
 package/
+_build
+compile_commands.json
 
+rel/files/vm.args
