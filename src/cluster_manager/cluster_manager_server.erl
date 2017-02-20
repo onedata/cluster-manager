@@ -64,7 +64,6 @@ start_link() ->
             Error
     end.
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% Stops the server
@@ -98,7 +97,6 @@ init(_) ->
     gen_server:cast(self(), update_advices),
     {ok, #state{}}.
 
-
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -119,32 +117,25 @@ init(_) ->
     NewState :: term(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-
 handle_call(get_nodes, _From, State) ->
     {reply, State#state.nodes, State};
-
 handle_call(get_node_to_sync, _From, State) ->
     Ans = get_node_to_sync(State),
     {reply, Ans, State};
-
 handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) ->
     MemSum = lists:foldl(fun({_Node, NodeState}, Sum) ->
         Sum + NodeState#node_state.mem_usage
     end, 0, NodeStates),
     {reply, MemSum/max(1, length(NodeStates)), State};
-
 handle_call(healthcheck, _From, State) ->
     Ans = healthcheck(State),
     {reply, Ans, State};
-
 handle_call({register_singleton_module, Module, Node}, _From, State) ->
     {Ans, NewState} = register_singleton_module(Module, Node, State),
     {reply, Ans, NewState};
-
 handle_call(_Request, _From, State) ->
     ?log_bad_request(_Request),
     {reply, wrong_request, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -159,30 +150,23 @@ handle_call(_Request, _From, State) ->
     | {stop, Reason :: term(), NewState},
     NewState :: term(),
     Timeout :: non_neg_integer() | infinity.
-
 handle_cast({cm_conn_req, Node}, State) ->
     NewState = cm_conn_req(State, Node),
     {noreply, NewState};
-
 handle_cast({init_ok, Node}, State) ->
     NewState = init_ok(State, Node),
     {noreply, NewState};
-
 handle_cast({heartbeat, NodeState}, State) ->
     NewState = heartbeat(State, NodeState),
     {noreply, NewState};
-
 handle_cast(update_advices, State) ->
     NewState = update_advices(State),
     {noreply, NewState};
-
 handle_cast(stop, State) ->
     {stop, normal, State};
-
 handle_cast(_Request, State) ->
     ?log_bad_request(_Request),
     {noreply, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -200,15 +184,12 @@ handle_cast(_Request, State) ->
 handle_info({timer, Msg}, State) ->
     gen_server:cast({global, ?CLUSTER_MANAGER}, Msg),
     {noreply, State};
-
 handle_info({nodedown, Node}, State) ->
     NewState = node_down(Node, State),
     {noreply, NewState};
-
 handle_info(_Request, State) ->
     ?log_bad_request(_Request),
     {noreply, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -226,7 +207,6 @@ handle_info(_Request, State) ->
     | term().
 terminate(_Reason, _State) ->
     ok.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -252,9 +232,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec cm_conn_req(State :: #state{}, SenderNode :: node()) -> NewState :: #state{}.
-cm_conn_req(State = #state{nodes = Nodes, uninitialized_nodes = InitNodes}, SenderNode) ->
+cm_conn_req(State = #state{uninitialized_nodes = InitNodes}, SenderNode) ->
     ?info("Connection request from node: ~p", [SenderNode]),
-    case lists:member(SenderNode, Nodes) or lists:member(SenderNode, InitNodes) of
+    case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
             gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, cm_conn_ack),
             State;
@@ -273,7 +253,6 @@ cm_conn_req(State = #state{nodes = Nodes, uninitialized_nodes = InitNodes}, Send
             end
     end.
 
-
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -281,12 +260,35 @@ cm_conn_req(State = #state{nodes = Nodes, uninitialized_nodes = InitNodes}, Send
 %% @end
 %%--------------------------------------------------------------------
 -spec init_ok(State :: #state{}, SenderNode :: node()) -> #state{}.
-init_ok(State = #state{nodes = Nodes, uninitialized_nodes = InitNodes}, SenderNode) ->
+init_ok(State = #state{nodes = InitializedNodes, uninitialized_nodes = UninitializedNodes}, SenderNode) ->
     ?info("Node ~p initialized successfully.", [SenderNode]),
-    NewInitNodes = lists:delete(SenderNode, InitNodes),
-    NewNodes = add_node_to_list(SenderNode, Nodes),
-    State#state{nodes = NewNodes, uninitialized_nodes = NewInitNodes}.
+    NewUninitializedNodes = lists:delete(SenderNode, UninitializedNodes),
+    NewInitializedNodes = add_node_to_list(SenderNode, InitializedNodes),
+    create_hash_ring_if_all_nodes_are_initialized(NewInitializedNodes),
+    State#state{nodes = NewInitializedNodes, uninitialized_nodes = NewUninitializedNodes}.
 
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Creates hash ring if all cluster nodes have been successfully initialized.
+%% Notifies nodes that cluster init is completed.
+%% @end
+%%--------------------------------------------------------------------
+-spec create_hash_ring_if_all_nodes_are_initialized([node()]) -> ok.
+create_hash_ring_if_all_nodes_are_initialized(Nodes) ->
+    case get_worker_num() =:= length(Nodes) of
+        true ->
+            ?info("Initializing Hash Ring."),
+            consistent_hasing:init(lists:usort(Nodes)),
+            CHash = consistent_hasing:get_chash_ring(),
+            lists:foreach(fun(Node) ->
+                rpc:call(Node, consistent_hasing, set_chash_ring, [CHash]),
+                gen_server:cast({?NODE_MANAGER_NAME, Node}, cluster_init_finished)
+            end, Nodes),
+            ?info("Hash ring initialized successfully.");
+        false ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -395,8 +397,8 @@ node_down(Node, State) ->
         singleton_modules = NewSingletons
     }.
 
-
 %%--------------------------------------------------------------------
+%% @private
 %% @doc
 %% Get node that can be used by new nodes to synchronize with
 %% (i. e. attach to mnesia cluster). This node should be one of active
@@ -416,7 +418,6 @@ get_node_to_sync(#state{nodes = [FirstNode | _]}) ->
 get_node_to_sync(#state{uninitialized_nodes = [FirstInitNode | _]}) ->
     {ok, FirstInitNode}.
 
-
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -424,20 +425,18 @@ get_node_to_sync(#state{uninitialized_nodes = [FirstInitNode | _]}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec healthcheck(State :: #state{}) ->
-    {ok, {Nodes :: [node()], StateNum :: non_neg_integer()}} |
-    {error, invalid_worker_num}.
+    {ok, Nodes :: [node()]} | {error, invalid_worker_num}.
 healthcheck(#state{nodes = Nodes}) ->
-    case application:get_env(?APP_NAME, worker_num) of
-        {ok, N} when N =< length(Nodes) ->
-            {ok, Nodes};
-        {ok, undefined} ->
+    N = get_worker_num(),
+    case N == length(Nodes) of
+        true ->
             {ok, Nodes};
         _ ->
             {error, invalid_worker_num}
     end.
 
-
 %%--------------------------------------------------------------------
+%% @private
 %% @doc
 %% Add node to list if it's not there
 %% @end
@@ -448,3 +447,29 @@ add_node_to_list(Node, List) ->
         true -> List;
         false -> List ++ [Node]
     end.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Get number of workers in cluster
+%% @end
+%%--------------------------------------------------------------------
+-spec get_worker_num() -> non_neg_integer().
+get_worker_num() ->
+    case application:get_env(?APP_NAME, worker_num) of
+        {ok, N} ->
+            N;
+        N ->
+            exit(<<"The 'worker_num' env variable of op_worker application",
+                " is undefined. Refusing to initialize cluster.">>)
+    end.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Get all connected nodes
+%% @end
+%%--------------------------------------------------------------------
+-spec get_all_nodes(#state{}) -> [node()].
+get_all_nodes(#state{nodes = Nodes, uninitialized_nodes = InitNodes}) ->
+    lists:usort(Nodes ++ InitNodes).
