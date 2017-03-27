@@ -15,11 +15,6 @@ CHANGELOG
 * Releasing new version 3.0.0-rc12
 
 
-### 3.0.0-rc12
-
-* VFS-2856 Update ctool.
-
-
 ### 3.0.0-rc9
 
 * Releasing new version 3.0.0-rc9
