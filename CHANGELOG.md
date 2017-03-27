@@ -4,6 +4,17 @@
 CHANGELOG
 ---------
 
+### 3.0.0-rc13
+
+* Releasing new version 3.0.0-rc13
+
+
+### 3.0.0-rc12
+
+* VFS-2991 Add hash_ring initialization on startup.
+* Releasing new version 3.0.0-rc12
+
+
 ### 3.0.0-rc12
 
 * VFS-2856 Update ctool.
