@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 3.0.0-rc15
+
+* Releasing new version 3.0.0-rc15
+
+
 ### 3.0.0-rc14
 
 * Releasing new version 3.0.0-rc14
