@@ -4,6 +4,52 @@
 CHANGELOG
 ---------
 
+### 17.06.0-beta6
+
+* Releasing new version 17.06.0-beta6
+
+
+### 17.06.0-beta4
+
+* VFS-3362 Update web-client
+
+
+### 17.06.0-beta3
+
+* Releasing new version 17.06.0-beta3
+
+
+### 17.06.0-beta2
+
+* Releasing new version 17.06.0-beta2
+
+
+### 3.0.0-rc16
+
+* Releasing new version 3.0.0-rc16
+
+
+### 3.0.0-rc15
+
+* Releasing new version 3.0.0-rc15
+
+
+### 3.0.0-rc14
+
+* Releasing new version 3.0.0-rc14
+
+
+### 3.0.0-rc13
+
+* Releasing new version 3.0.0-rc13
+
+
+### 3.0.0-rc12
+
+* VFS-2991 Add hash_ring initialization on startup.
+* Releasing new version 3.0.0-rc12
+
+
 ### 3.0.0-rc9
 
 * Releasing new version 3.0.0-rc9
