@@ -12,7 +12,6 @@ CHANGELOG
 ### 17.06.0-rc1
 
 * Releasing new version 17.06.0-rc1
-* Update vsn in app.src file
 
 
 ### 17.06.0-beta6
