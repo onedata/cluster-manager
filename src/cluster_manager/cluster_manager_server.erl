@@ -37,7 +37,8 @@
     singleton_modules = [] :: [{Module :: atom(), Node :: node() | undefined}],
     node_states = [] :: [{Node :: node(), NodeState :: #node_state{}}],
     last_heartbeat = [] :: [{Node :: node(), Timestamp :: integer()}],
-    lb_state = undefined :: load_balancing:load_balancing_state() | undefined
+    lb_state = undefined :: load_balancing:load_balancing_state() | undefined,
+    ips_change_event_state = {false, erlang:monotonic_time(millisecond)} :: {Scheduled :: boolean, Timestamp :: integer()}
 }).
 
 %%%===================================================================
@@ -256,7 +257,7 @@ cm_conn_req(State = #state{uninitialized_nodes = InitNodes}, SenderNode) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Receive acknowledgement of successfull worker initialization on node
+%% Receive acknowledgement of successful worker initialization on node
 %% @end
 %%--------------------------------------------------------------------
 -spec init_ok(State :: #state{}, SenderNode :: node()) -> #state{}.
