@@ -286,7 +286,7 @@ init_ok(State = #state{nodes = InitializedNodes, uninitialized_nodes = Uninitial
 on_cluster_ready(#state{nodes = Nodes} = State) ->
     create_hash_ring(Nodes),
     lists:foreach(fun(Node) ->
-        gen_server:cast({?NODE_MANAGER_NAME, Node}, cluster_init_finished)
+        gen_server:cast({?NODE_MANAGER_NAME, Node}, {cluster_init_finished, Nodes})
     end, Nodes),
     State.
 
