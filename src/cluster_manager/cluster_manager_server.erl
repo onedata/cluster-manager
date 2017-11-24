@@ -119,6 +119,8 @@ init(_) ->
     Reason :: term().
 handle_call(get_nodes, _From, State) ->
     {reply, State#state.nodes, State};
+handle_call(get_current_time, _From, State) ->
+    {reply, time_utils:system_time_milli_seconds(), State};
 handle_call(get_node_to_sync, _From, State) ->
     Ans = get_node_to_sync(State),
     {reply, Ans, State};
