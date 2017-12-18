@@ -126,6 +126,8 @@ handle_call(get_nodes, _From, State) ->
             {error, cluster_not_ready}
     end,
     {reply, Response, State};
+handle_call(get_current_time, _From, State) ->
+    {reply, time_utils:system_time_milli_seconds(), State};
 handle_call(get_node_to_sync, _From, State) ->
     Ans = get_node_to_sync(State),
     {reply, Ans, State};
@@ -414,7 +416,7 @@ node_down(Node, State) ->
 %% @private
 %% @doc
 %% Create list of all nodes' IPs.
-%% Note that before the first heartbeat after connecting, node is not present 
+%% Note that before the first heartbeat after connecting, node is not present
 %% in the node_states list and will not be returned by this function.
 %% @end
 %%--------------------------------------------------------------------
