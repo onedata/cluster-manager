@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 17.06.0
+
+* Releasing new version 17.06.0
+
+
 ### 17.06.0-rc9
 
 * VFS-3972 Fix attach-direct consoles in releases not being run with xterm terminal
