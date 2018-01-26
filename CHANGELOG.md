@@ -4,6 +4,12 @@
 CHANGELOG
 ---------
 
+### 17.06.0-rc9
+
+* VFS-3972 Fix attach-direct consoles in releases not being run with xterm terminal
+* VFS-3803 Add cluster_manager call to get current system time
+
+
 ### 17.06.0-rc8
 
 * Releasing new version 17.06.0-rc8
