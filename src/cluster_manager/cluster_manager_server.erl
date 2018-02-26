@@ -124,7 +124,7 @@ handle_call(get_nodes, _From, #state{nodes = Nodes} = State) ->
     end,
     {reply, Response, State};
 handle_call(get_current_time, _From, State) ->
-    {reply, time_utils:system_time_milli_seconds(), State};
+    {reply, time_utils:system_time_millis(), State};
 handle_call(get_node_to_sync, _From, State) ->
     Ans = get_node_to_sync(State),
     {reply, Ans, State};
