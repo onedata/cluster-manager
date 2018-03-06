@@ -117,17 +117,14 @@ init(_) ->
     NewState :: term(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-handle_call(get_nodes, _From, State) ->
-    NodesIPs = get_active_nodes_ips(State),
-    Response = case is_cluster_ready(NodesIPs) of
-        true ->
-            {ok, NodesIPs};
-        false ->
-            {error, cluster_not_ready}
+handle_call(get_nodes, _From, #state{nodes = Nodes} = State) ->
+    Response = case is_cluster_ready(State) of
+        true -> {ok, Nodes};
+        false -> {error, cluster_not_ready}
     end,
     {reply, Response, State};
 handle_call(get_current_time, _From, State) ->
-    {reply, time_utils:system_time_milli_seconds(), State};
+    {reply, time_utils:system_time_millis(), State};
 handle_call(get_node_to_sync, _From, State) ->
     Ans = get_node_to_sync(State),
     {reply, Ans, State};
@@ -415,18 +412,6 @@ node_down(Node, State) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Create list of all nodes' IPs.
-%% Note that before the first heartbeat after connecting, node is not present
-%% in the node_states list and will not be returned by this function.
-%% @end
-%%--------------------------------------------------------------------
--spec get_active_nodes_ips(#state{}) -> [{node(), inet:ip4_address()}].
-get_active_nodes_ips(#state{node_states = NodeStates}) ->
-    [{Node, IP} || {Node, #node_state{ip_addr = IP}} <- NodeStates].
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
 %% Get node that can be used by new nodes to synchronize with
 %% (i. e. attach to mnesia cluster). This node should be one of active
 %% nodes of existing cluster, or if there isn't any, the first of nodes
@@ -481,10 +466,8 @@ get_worker_num() ->
 %% Check if number of nodes is correct (matches configured).
 %% @end
 %%--------------------------------------------------------------------
--spec is_cluster_ready(#state{} | [term()]) -> boolean().
+-spec is_cluster_ready(#state{}) -> boolean().
 is_cluster_ready(#state{nodes = Nodes}) ->
-    is_cluster_ready(Nodes);
-is_cluster_ready(Nodes) when is_list(Nodes) ->
     get_worker_num() == length(Nodes).
 
 
