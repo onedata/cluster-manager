@@ -4,6 +4,12 @@
 CHANGELOG
 ---------
 
+### 18.02.0-beta3
+
+* VFS-4130 Adjust to changed function in ctool time_utils
+* VFS-4054 Do not return IPs from get_nodes call
+
+
 ### 18.02.0-beta2
 
 * Releasing new version 18.02.0-beta2
