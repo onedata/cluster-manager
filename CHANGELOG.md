@@ -4,6 +4,16 @@
 CHANGELOG
 ---------
 
+### 18.02.0-beta5
+
+* Releasing new version 18.02.0-beta5
+
+
+### 18.02.0-beta4
+
+* Releasing new version 18.02.0-beta4
+
+
 ### 18.02.0-beta3
 
 * VFS-4130 Adjust to changed function in ctool time_utils
