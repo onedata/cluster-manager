@@ -6,7 +6,8 @@ CHANGELOG
 
 ### 18.02.0-beta5
 
-* Releasing new version 18.02.0-beta5
+* Update web-client and ctool refs
+* VFS-4267 Adjust code to erl 20, update deps
 
 
 ### 18.02.0-beta4
