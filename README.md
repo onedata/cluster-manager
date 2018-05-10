@@ -17,6 +17,7 @@ From shell using script “cluster_manager” with argument “console” or “
 
 To prepare cluster-manager script:
 
+ * Use command "make submodules" to initialize submodules
  * Use command “./make.py” to generate release.
  * Use “./make.py compile” to compile code only (faster than building release).
 
