@@ -4,6 +4,13 @@
 CHANGELOG
 ---------
 
+### 18.02.0-rc2
+
+* VFS-4446 Updated jiffy ref
+* VFS-4443 Fixed generation of source archive with submodules
+* VFS-4295 Changed subtrees to submodules
+
+
 ### 18.02.0-rc1
 
 * VFS-2021 Added dockers.config
