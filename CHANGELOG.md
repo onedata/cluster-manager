@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 18.02.0-rc3
+
+* VFS-3953 Update lager version and log formatter
+
+
 ### 18.02.0-rc2
 
 * VFS-4446 Updated jiffy ref
