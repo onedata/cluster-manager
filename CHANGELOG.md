@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 18.02.0-rc4
+
+* Releasing new version 18.02.0-rc4
+
+
 ### 18.02.0-rc3
 
 * VFS-3953 Update lager version and log formatter
