@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 18.02.0-rc7
+
+* Releasing new version 18.02.0-rc7
+
+
 ### 18.02.0-rc6
 
 * Releasing new version 18.02.0-rc6
