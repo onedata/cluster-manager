@@ -452,7 +452,7 @@ add_node_to_list(Node, List) ->
 -spec get_worker_num() -> non_neg_integer().
 get_worker_num() ->
     case application:get_env(?APP_NAME, worker_num) of
-        {ok, N} ->
+        {ok, N} when is_integer(N) ->
             N;
         _ ->
             exit(<<"The 'worker_num' env variable of cluster_manager ",
