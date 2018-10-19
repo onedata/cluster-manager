@@ -11,7 +11,7 @@
 %%%-------------------------------------------------------------------
 {application, cluster_manager, [
     {description, "Application starts central manager of oneprovider cluster"},
-    {vsn, "18.02.0-rc11"},
+    {vsn, "18.02.0-rc12"},
     {registered, [cluster_manager_sup]},
     {applications, [
         kernel,
