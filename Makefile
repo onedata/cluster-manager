@@ -2,10 +2,11 @@
 
 REPO            ?= cluster-manager
 
-# distro for package building (oneof: wily, fedora-23-x86_64)
+# distro for package building (e.g.: xenial, centos-7-x86_64)
 DISTRIBUTION    ?= none
 export DISTRIBUTION
 
+RELEASE         ?= 1802
 PKG_REVISION    ?= $(shell git describe --tags --always)
 PKG_VERSION	    ?= $(shell git describe --tags --always | tr - .)
 PKG_ID           = cluster-manager-$(PKG_VERSION)
@@ -93,7 +94,7 @@ dialyzer:
 
 check_distribution:
 ifeq ($(DISTRIBUTION), none)
-	@echo "Please provide package distribution. Oneof: 'wily', 'fedora-23-x86_64'"
+	@echo "Please provide package distribution. Oneof: 'xenial', 'centos-7-x86_64'"
 	@exit 1
 else
 	@echo "Building package for distribution $(DISTRIBUTION)"
