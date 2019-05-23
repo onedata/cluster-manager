@@ -4,6 +4,12 @@
 CHANGELOG
 ---------
 
+### 18.02.1
+
+* VFS-5159 Add boost lib to RPM dependencies
+* VFS-5159 Add missing folly lib to package deps and update ctool
+
+
 ### 18.02.0-rc13
 
 * Releasing new version 18.02.0-rc13
