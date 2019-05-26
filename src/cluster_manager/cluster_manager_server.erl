@@ -117,8 +117,14 @@ init(_) ->
     NewState :: term(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-handle_call(get_nodes, _From, State) ->
-    {reply, State#state.nodes, State};
+handle_call(get_nodes, _From, #state{nodes = Nodes} = State) ->
+    Response = case is_cluster_ready(State) of
+        true -> {ok, Nodes};
+        false -> {error, cluster_not_ready}
+    end,
+    {reply, Response, State};
+handle_call(get_current_time, _From, State) ->
+    {reply, time_utils:system_time_millis(), State};
 handle_call(get_node_to_sync, _From, State) ->
     Ans = get_node_to_sync(State),
     {reply, Ans, State};
@@ -127,9 +133,6 @@ handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) 
         Sum + NodeState#node_state.mem_usage
     end, 0, NodeStates),
     {reply, MemSum/max(1, length(NodeStates)), State};
-handle_call(healthcheck, _From, State) ->
-    Ans = healthcheck(State),
-    {reply, Ans, State};
 handle_call({register_singleton_module, Module, Node}, _From, State) ->
     {Ans, NewState} = register_singleton_module(Module, Node, State),
     {reply, Ans, NewState};
@@ -256,7 +259,7 @@ cm_conn_req(State = #state{uninitialized_nodes = InitNodes}, SenderNode) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Receive acknowledgement of successfull worker initialization on node
+%% Receive acknowledgement of successful worker initialization on node.
 %% @end
 %%--------------------------------------------------------------------
 -spec init_ok(State :: #state{}, SenderNode :: node()) -> #state{}.
@@ -264,31 +267,45 @@ init_ok(State = #state{nodes = InitializedNodes, uninitialized_nodes = Uninitial
     ?info("Node ~p initialized successfully.", [SenderNode]),
     NewUninitializedNodes = lists:delete(SenderNode, UninitializedNodes),
     NewInitializedNodes = add_node_to_list(SenderNode, InitializedNodes),
-    create_hash_ring_if_all_nodes_are_initialized(NewInitializedNodes),
-    State#state{nodes = NewInitializedNodes, uninitialized_nodes = NewUninitializedNodes}.
+    NewState = State#state{nodes = NewInitializedNodes, uninitialized_nodes = NewUninitializedNodes},
+    case is_cluster_ready(NewState) of
+        true -> on_cluster_ready(NewState);
+        _ -> NewState
+    end.
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Performs actions after all expected nodes are active.
+%% Notifies nodes that cluster init is completed.
+%% @end
+%%--------------------------------------------------------------------
+-spec on_cluster_ready(#state{}) -> #state{}.
+on_cluster_ready(#state{nodes = Nodes} = State) ->
+    create_hash_ring(Nodes),
+    lists:foreach(fun(Node) ->
+        gen_server:cast({?NODE_MANAGER_NAME, Node}, {cluster_init_finished, Nodes})
+    end, Nodes),
+    State.
+
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
 %% Creates hash ring if all cluster nodes have been successfully initialized.
-%% Notifies nodes that cluster init is completed.
 %% @end
 %%--------------------------------------------------------------------
--spec create_hash_ring_if_all_nodes_are_initialized([node()]) -> ok.
-create_hash_ring_if_all_nodes_are_initialized(Nodes) ->
-    case get_worker_num() =:= length(Nodes) of
-        true ->
-            ?info("Initializing Hash Ring."),
-            consistent_hasing:init(lists:usort(Nodes)),
-            CHash = consistent_hasing:get_chash_ring(),
-            lists:foreach(fun(Node) ->
-                rpc:call(Node, consistent_hasing, set_chash_ring, [CHash]),
-                gen_server:cast({?NODE_MANAGER_NAME, Node}, cluster_init_finished)
-            end, Nodes),
-            ?info("Hash ring initialized successfully.");
-        false ->
-            ok
-    end.
+-spec create_hash_ring([node()]) -> ok.
+create_hash_ring(Nodes) ->
+    ?info("Initializing Hash Ring."),
+    consistent_hasing:init(lists:usort(Nodes)),
+    CHash = consistent_hasing:get_chash_ring(),
+    lists:foreach(fun(Node) ->
+        rpc:call(Node, consistent_hasing, set_chash_ring, [CHash])
+    end, Nodes),
+    ?info("Hash ring initialized successfully.").
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -333,18 +350,13 @@ update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbea
                         false -> NodeState
                     end
                 end, NodeStates),
-            {AdvicesForDNSes, LBState2} = load_balancing:advices_for_dnses(PrecheckedNodeStates, LBState),
             {AdvicesForDispatchers, NewState} =
-                load_balancing:advices_for_dispatchers(PrecheckedNodeStates, LBState2, Singletons),
-            LBAdvices = lists:zipwith(
-                fun({Node, DNSAdvice}, {Node, DispAdvice}) ->
-                    {Node, {DNSAdvice, DispAdvice}}
-                end, AdvicesForDNSes, AdvicesForDispatchers),
+                load_balancing:advices_for_dispatchers(PrecheckedNodeStates, LBState, Singletons),
             % Send LB advices
             lists:foreach(
-                fun({Node, Advices}) ->
-                    gen_server:cast({?NODE_MANAGER_NAME, Node}, {update_lb_advices, Advices})
-                end, LBAdvices),
+                fun({Node, AdviceForDispatchers}) ->
+                    gen_server:cast({?NODE_MANAGER_NAME, Node}, {update_lb_advices, AdviceForDispatchers})
+                end, AdvicesForDispatchers),
             State#state{lb_state = NewState}
     end.
 
@@ -421,23 +433,6 @@ get_node_to_sync(#state{uninitialized_nodes = [FirstInitNode | _]}) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Handles healthcheck request
-%% @end
-%%--------------------------------------------------------------------
--spec healthcheck(State :: #state{}) ->
-    {ok, Nodes :: [node()]} | {error, invalid_worker_num}.
-healthcheck(#state{nodes = Nodes}) ->
-    N = get_worker_num(),
-    case N == length(Nodes) of
-        true ->
-            {ok, Nodes};
-        _ ->
-            {error, invalid_worker_num}
-    end.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
 %% Add node to list if it's not there
 %% @end
 %%--------------------------------------------------------------------
@@ -457,12 +452,24 @@ add_node_to_list(Node, List) ->
 -spec get_worker_num() -> non_neg_integer().
 get_worker_num() ->
     case application:get_env(?APP_NAME, worker_num) of
-        {ok, N} ->
+        {ok, N} when is_integer(N) ->
             N;
-        N ->
-            exit(<<"The 'worker_num' env variable of op_worker application",
-                " is undefined. Refusing to initialize cluster.">>)
+        _ ->
+            exit(<<"The 'worker_num' env variable of cluster_manager ",
+                "application is undefined. Refusing to initialize cluster.">>)
     end.
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Check if number of nodes is correct (matches configured).
+%% @end
+%%--------------------------------------------------------------------
+-spec is_cluster_ready(#state{}) -> boolean().
+is_cluster_ready(#state{nodes = Nodes}) ->
+    get_worker_num() == length(Nodes).
+
 
 %%--------------------------------------------------------------------
 %% @private
