@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 18.02.2
+
+* Releasing new version 18.02.2
+
+
 ### 18.02.1
 
 * VFS-5159 Add boost lib to RPM dependencies
