@@ -299,10 +299,10 @@ on_cluster_ready(#state{nodes = Nodes} = State) ->
 -spec create_hash_ring([node()]) -> ok.
 create_hash_ring(Nodes) ->
     ?info("Initializing Hash Ring."),
-    consistent_hasing:init(lists:usort(Nodes)),
-    CHash = consistent_hasing:get_chash_ring(),
+    consistent_hashing:init(lists:usort(Nodes)),
+    CHash = consistent_hashing:get_chash_ring(),
     lists:foreach(fun(Node) ->
-        rpc:call(Node, consistent_hasing, set_chash_ring, [CHash])
+        rpc:call(Node, consistent_hashing, set_chash_ring, [CHash])
     end, Nodes),
     ?info("Hash ring initialized successfully.").
 
