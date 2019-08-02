@@ -4,6 +4,7 @@
 .idea
 .dialyzer.plt
 .rebar
+.rebar3
 
 *.iml
 *.beam
@@ -17,5 +18,5 @@ logs
 package/
 _build
 compile_commands.json
-
 rel/files/vm.args
+ebin
