@@ -4,7 +4,7 @@
 CHANGELOG
 ---------
 
-### New Version Tag do not change this line
+### 19.02.0-rc1
 
 * VFS-5657 Enabled Ubuntu distribution package tag
 * VFS-5629 Enable unknown dialyzer warnings
