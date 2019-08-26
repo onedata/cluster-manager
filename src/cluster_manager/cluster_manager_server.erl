@@ -8,6 +8,9 @@
 %%%-------------------------------------------------------------------
 %%% @doc
 %%% This module coordinates central cluster.
+%%% Cluster initialization is divided into steps. For each step cluster
+%%% manager waits for all nodes to be ready before informing node managers
+%%% to move to the next one.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(cluster_manager_server).
@@ -32,13 +35,22 @@
 %% nodes, dispatchers and workers in cluster. It also contains reference
 %% to process used to monitor if nodes are alive.
 -record(state, {
-    nodes = [] :: [Node :: node()],
-    uninitialized_nodes = [] :: [Node :: node()],
+    current_step = init :: step(),
+    ready_nodes = [] :: [Node :: node()],
+    in_progress_nodes = [] :: [Node :: node()],
     singleton_modules = [] :: [{Module :: atom(), Node :: node() | undefined}],
     node_states = [] :: [{Node :: node(), NodeState :: #node_state{}}],
     last_heartbeat = [] :: [{Node :: node(), Timestamp :: integer()}],
     lb_state = undefined :: load_balancing:load_balancing_state() | undefined
 }).
+
+
+-type state() :: #state{}.
+-type step() :: init | start_default_workers | cluster_init_finished | start_custom_workers
+| upgrade_cluster | start_listeners | ready.
+
+
+-define(STEP_TIMEOUT(Step), application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), 10)).
 
 %%%===================================================================
 %%% API
@@ -91,7 +103,6 @@ stop() ->
     | ignore,
     State :: term(),
     Timeout :: non_neg_integer() | infinity.
-%% ====================================================================
 init(_) ->
     process_flag(trap_exit, true),
     gen_server:cast(self(), update_advices),
@@ -117,25 +128,30 @@ init(_) ->
     NewState :: term(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-handle_call(get_nodes, _From, #state{nodes = Nodes} = State) ->
+handle_call(get_nodes, _From, #state{ready_nodes = Nodes} = State) ->
     Response = case is_cluster_ready(State) of
         true -> {ok, Nodes};
         false -> {error, cluster_not_ready}
     end,
     {reply, Response, State};
+
 handle_call(get_current_time, _From, State) ->
     {reply, time_utils:system_time_millis(), State};
+
 handle_call(get_node_to_sync, _From, State) ->
     Ans = get_node_to_sync(State),
     {reply, Ans, State};
+
 handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) ->
     MemSum = lists:foldl(fun({_Node, NodeState}, Sum) ->
         Sum + NodeState#node_state.mem_usage
     end, 0, NodeStates),
     {reply, MemSum/max(1, length(NodeStates)), State};
+
 handle_call({register_singleton_module, Module, Node}, _From, State) ->
     {Ans, NewState} = register_singleton_module(Module, Node, State),
     {reply, Ans, NewState};
+
 handle_call(_Request, _From, State) ->
     ?log_bad_request(_Request),
     {reply, wrong_request, State}.
@@ -156,17 +172,34 @@ handle_call(_Request, _From, State) ->
 handle_cast({cm_conn_req, Node}, State) ->
     NewState = cm_conn_req(State, Node),
     {noreply, NewState};
-handle_cast({init_ok, Node}, State) ->
-    NewState = init_ok(State, Node),
+
+handle_cast({Step, Node}, #state{current_step = Step} = State) ->
+    NewState = mark_node_ready(Node, State),
     {noreply, NewState};
+
+handle_cast(next_step, State) ->
+    NewState = handle_next_step(State),
+    {noreply, NewState};
+
 handle_cast({heartbeat, NodeState}, State) ->
     NewState = heartbeat(State, NodeState),
     {noreply, NewState};
+
 handle_cast(update_advices, State) ->
     NewState = update_advices(State),
     {noreply, NewState};
+
+handle_cast({error, Node}, State) ->
+    NewState = handle_error(State, Node),
+    {noreply, NewState};
+
+handle_cast({check_cluster_status, Step, Retries}, State) ->
+    NewState = check_cluster_status(Step, State, Retries),
+    {noreply, NewState};
+
 handle_cast(stop, State) ->
     {stop, normal, State};
+
 handle_cast(_Request, State) ->
     ?log_bad_request(_Request),
     {noreply, State}.
@@ -187,9 +220,11 @@ handle_cast(_Request, State) ->
 handle_info({timer, Msg}, State) ->
     gen_server:cast({global, ?CLUSTER_MANAGER}, Msg),
     {noreply, State};
+
 handle_info({nodedown, Node}, State) ->
     NewState = node_down(Node, State),
     {noreply, NewState};
+
 handle_info(_Request, State) ->
     ?log_bad_request(_Request),
     {noreply, State}.
@@ -234,20 +269,20 @@ code_change(_OldVsn, State, _Extra) ->
 %% Receive heartbeat from node_manager
 %% @end
 %%--------------------------------------------------------------------
--spec cm_conn_req(State :: #state{}, SenderNode :: node()) -> NewState :: #state{}.
-cm_conn_req(State = #state{uninitialized_nodes = InitNodes}, SenderNode) ->
+-spec cm_conn_req(State :: state(), SenderNode :: node()) -> NewState :: state().
+cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
     ?info("Connection request from node: ~p", [SenderNode]),
     case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
-            gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, cm_conn_ack),
+            gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, init),
             State;
         false ->
             ?info("New node: ~p", [SenderNode]),
             try
                 erlang:monitor_node(SenderNode, true),
-                NewInitNodes = add_node_to_list(SenderNode, InitNodes),
-                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, cm_conn_ack),
-                State#state{uninitialized_nodes = NewInitNodes}
+                NewInProgressNodes = add_node_to_list(SenderNode, InProgressNodes),
+                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, init),
+                State#state{in_progress_nodes = NewInProgressNodes}
             catch
                 _:Error ->
                     ?warning_stacktrace("Checking node ~p, in cm failed with error: ~p",
@@ -256,39 +291,103 @@ cm_conn_req(State = #state{uninitialized_nodes = InitNodes}, SenderNode) ->
             end
     end.
 
+
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Receive acknowledgement of successful worker initialization on node.
+%% Marks given node as ready in given step. Informs cluster manager
+%% when all nodes are ready.
 %% @end
 %%--------------------------------------------------------------------
--spec init_ok(State :: #state{}, SenderNode :: node()) -> #state{}.
-init_ok(State = #state{nodes = InitializedNodes, uninitialized_nodes = UninitializedNodes}, SenderNode) ->
-    ?info("Node ~p initialized successfully.", [SenderNode]),
-    NewUninitializedNodes = lists:delete(SenderNode, UninitializedNodes),
-    NewInitializedNodes = add_node_to_list(SenderNode, InitializedNodes),
-    NewState = State#state{nodes = NewInitializedNodes, uninitialized_nodes = NewUninitializedNodes},
+-spec mark_node_ready(node(), state()) -> state().
+mark_node_ready(Node, State) ->
+    #state{
+        ready_nodes = ReadyNodes,
+        in_progress_nodes = InProgressNodes,
+        current_step = Step
+    } = State,
+    NewState = State#state{
+        ready_nodes = add_node_to_list(Node, ReadyNodes),
+        in_progress_nodes = lists:delete(Node, InProgressNodes)
+    },
     case is_cluster_ready(NewState) of
-        true -> on_cluster_ready(NewState);
-        _ -> NewState
+        true ->
+            ?info("All nodes ready in step ~p", [Step]),
+            gen_server:cast({global, ?CLUSTER_MANAGER}, next_step),
+            NewState;
+        false ->
+            NewState
     end.
 
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Performs actions after all expected nodes are active.
-%% Notifies nodes that cluster init is completed.
+%% Moves cluster to next step. Informs all cluster nodes.
 %% @end
 %%--------------------------------------------------------------------
--spec on_cluster_ready(#state{}) -> #state{}.
-on_cluster_ready(#state{nodes = Nodes} = State) ->
+-spec handle_next_step(state()) -> state().
+handle_next_step(#state{ready_nodes = Nodes, current_step = start_default_workers} = State) ->
     create_hash_ring(Nodes),
-    lists:foreach(fun(Node) ->
-        gen_server:cast({?NODE_MANAGER_NAME, Node}, {cluster_init_finished, Nodes})
-    end, Nodes),
-    State.
+    handle_next_step(State, true);
+handle_next_step(State) ->
+    handle_next_step(State, false).
 
+
+%% @private
+-spec handle_next_step(state(), SendNodes :: boolean()) -> state().
+handle_next_step(#state{ready_nodes = Nodes, current_step = CurrentStep} = State, SendNodes) ->
+    NextStep = get_next_step(CurrentStep),
+    ?info("Starting new step: ~p", [NextStep]),
+
+    Msg = case SendNodes of
+        true -> {NextStep, Nodes};
+        false -> NextStep
+    end,
+    send_to_all_nodes(Nodes, Msg),
+    gen_server:cast(self(), {check_cluster_status, NextStep, ?STEP_TIMEOUT(NextStep)}),
+    case NextStep of
+        ready -> State#state{current_step = NextStep};
+        _ -> State#state{ready_nodes = [], in_progress_nodes = Nodes, current_step = NextStep}
+    end.
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handles error on one of cluster's nodes.
+%% @end
+%%--------------------------------------------------------------------
+-spec handle_error(state(), node()) -> state().
+handle_error(State, Node) ->
+    ?error("Error occured on node ~p. Stopping all nodes.", [Node]),
+    send_to_all_nodes(get_all_nodes(State), stop),
+    #state{}.
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Checks whether given step is finished.
+%% Stops all cluster nodes when cluster is not ready and no retries left.
+%% @end
+%%--------------------------------------------------------------------
+-spec check_cluster_status(step(), state(), RetriesLeft :: non_neg_integer()) -> state().
+check_cluster_status(Step, State, 0) ->
+    ?error("Cluster not ready in step: ~p", [Step]),
+    send_to_all_nodes(get_all_nodes(State), stop),
+    #state{};
+check_cluster_status(Step, #state{current_step = Step} = State, RetriesLeft) ->
+    case is_cluster_ready(State) of
+        true -> State;
+        false ->
+            erlang:send_after(timer:seconds(1), self(),
+                {timer, {check_cluster_status, Step, RetriesLeft - 1}}),
+            State
+    end;
+check_cluster_status(_Step, State, _RetriesLeft) ->
+    % Cluster already in next step
+    State.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -388,14 +487,14 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 %%--------------------------------------------------------------------
 -spec node_down(Node :: atom(), State :: #state{}) -> #state{}.
 node_down(Node, State) ->
-    #state{nodes = Nodes,
-        uninitialized_nodes = InitNodes,
+    #state{ready_nodes = Nodes,
+        in_progress_nodes = InProgressNodes,
         node_states = NodeStates,
         singleton_modules = Singletons
     } = State,
     ?error("Node down: ~p", [Node]),
     NewNodes = Nodes -- [Node],
-    NewInitNodes = InitNodes -- [Node],
+    NewInProgressNodes = InProgressNodes -- [Node],
     NewNodeStates = proplists:delete(Node, NodeStates),
     NewSingletons = lists:map(fun({M, N}) ->
         case N of
@@ -403,8 +502,8 @@ node_down(Node, State) ->
             _ -> {M, N}
         end
     end, Singletons),
-    State#state{nodes = NewNodes,
-        uninitialized_nodes = NewInitNodes,
+    State#state{ready_nodes = NewNodes,
+        in_progress_nodes = NewInProgressNodes,
         node_states = NewNodeStates,
         singleton_modules = NewSingletons
     }.
@@ -423,12 +522,12 @@ node_down(Node, State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec get_node_to_sync(#state{}) -> {ok, node()} | {error, term()}.
-get_node_to_sync(#state{nodes = [], uninitialized_nodes = []}) ->
+get_node_to_sync(#state{ready_nodes = [], in_progress_nodes = []}) ->
     {error, no_nodes_connected};
-get_node_to_sync(#state{nodes = [FirstNode | _]}) ->
+get_node_to_sync(#state{ready_nodes = [FirstNode | _]}) ->
     {ok, FirstNode};
-get_node_to_sync(#state{uninitialized_nodes = [FirstInitNode | _]}) ->
-    {ok, FirstInitNode}.
+get_node_to_sync(#state{in_progress_nodes = [FirstInProgressNode | _]}) ->
+    {ok, FirstInProgressNode}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -463,11 +562,11 @@ get_worker_num() ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Check if number of nodes is correct (matches configured).
+%% Check if number of ready nodes is correct (matches configured).
 %% @end
 %%--------------------------------------------------------------------
 -spec is_cluster_ready(#state{}) -> boolean().
-is_cluster_ready(#state{nodes = Nodes}) ->
+is_cluster_ready(#state{ready_nodes = Nodes}) ->
     get_worker_num() == length(Nodes).
 
 
@@ -478,5 +577,29 @@ is_cluster_ready(#state{nodes = Nodes}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec get_all_nodes(#state{}) -> [node()].
-get_all_nodes(#state{nodes = Nodes, uninitialized_nodes = InitNodes}) ->
-    lists:usort(Nodes ++ InitNodes).
+get_all_nodes(#state{ready_nodes = Nodes, in_progress_nodes = InProgressNodes}) ->
+    lists:usort(Nodes ++ InProgressNodes).
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Sends given message to node manager on all given nodes.
+%% @end
+%%--------------------------------------------------------------------
+-spec send_to_all_nodes([node()], any()) -> ok.
+send_to_all_nodes(Nodes, Msg) ->
+    lists:foreach(fun(Node) ->
+        gen_server:cast({?NODE_MANAGER_NAME, Node}, Msg)
+    end, Nodes).
+
+
+%% @private
+-spec get_next_step(step()) -> step().
+get_next_step(init) -> start_default_workers;
+get_next_step(start_default_workers) -> cluster_init_finished;
+get_next_step(cluster_init_finished) -> start_custom_workers;
+get_next_step(start_custom_workers) -> upgrade_cluster;
+get_next_step(upgrade_cluster) -> start_listeners;
+get_next_step(start_listeners) -> ready.
+
