@@ -4,6 +4,12 @@
 CHANGELOG
 ---------
 
+### New Version Tag do not change this line
+
+* VFS-5657 Enabled Ubuntu distribution package tag
+* VFS-5629 Enable unknown dialyzer warnings
+
+
 ### 18.02.3
 
 * Releasing new version 18.02.3
