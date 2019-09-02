@@ -4,6 +4,17 @@
 CHANGELOG
 ---------
 
+### 19.02.0-rc1
+
+* VFS-5657 Enabled Ubuntu distribution package tag
+* VFS-5629 Enable unknown dialyzer warnings
+
+
+### 18.02.3
+
+* Releasing new version 18.02.3
+
+
 ### 18.02.2
 
 * Releasing new version 18.02.2
