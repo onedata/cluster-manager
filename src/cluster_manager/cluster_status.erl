@@ -24,11 +24,18 @@
 -export([calculate_cluster_status/5]).
 -endif.
 
--type status() :: ok | out_of_sync | {error, ErrorDesc :: atom()}.
+-type status() :: ok | out_of_sync | error | {error, ErrorDesc :: atom()}.
+-type component() :: node_manager | node_manager_internal | dispatcher | workers | listeners.
 -type component_status() :: {module(), status()}.
 -type node_status() :: {node(), status(), [component_status()]}.
 
--export_type([status/0, component_status/0, node_status/0]).
+-export_type([status/0, component/0, component_status/0, node_status/0]).
+
+-define(CLUSTER_STATUS_CACHING_TIME,
+    application:get_env(?APP_NAME, cluster_status_caching_time, timer:minutes(5))).
+
+-define(CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT,
+    application:get_env(?APP_NAME, cluster_component_healthcheck_timeout, timer:seconds(10))).
 
 %%%===================================================================
 %%% API
@@ -42,13 +49,12 @@
 %%--------------------------------------------------------------------
 -spec get_cluster_status([node()]) -> {ok, {status(), [node_status()]}} | {error, term()}.
 get_cluster_status(Nodes) ->
-    CachingTime = application:get_env(?APP_NAME, cluster_status_caching_time, timer:minutes(5)),
     GetStatus = fun() ->
         Status = get_cluster_status(Nodes, node_manager),
         case Status of
-            % Save cluster state in cache, but only if there was no error
-            {ok, {ok, _}} ->
-                {true, Status, CachingTime};
+            % Save cluster status in cache, but only if there was no error
+            {ok, {ok = _ClusterStatus, _NodeStatuses}} ->
+                {true, Status, ?CLUSTER_STATUS_CACHING_TIME};
             _ ->
                 {false, Status}
         end
@@ -63,7 +69,7 @@ get_cluster_status(Nodes) ->
 %% Calculates cluster status based on healthcheck results received from node managers.
 %% @end
 %%--------------------------------------------------------------------
--spec get_cluster_status([node()], atom()) -> {ok, {status(), [node_status()]}} | {error, term()}.
+-spec get_cluster_status([node()], component()) -> {ok, {status(), [node_status()]}} | {error, term()}.
 get_cluster_status(Nodes, NodeManager) ->
     try
         NodeManagerStatuses = check_status(Nodes, NodeManager),
@@ -87,22 +93,19 @@ get_cluster_status(Nodes, NodeManager) ->
 %% Is run in parallel with one process per node.
 %% @end
 %%--------------------------------------------------------------------
--spec check_status([node()], atom()) -> [{node(), component_status()}] | [{node(), [component_status()]}].
+-spec check_status([node()], component()) -> [{node(), component_status()}] | [{node(), [component_status()]}].
 check_status(Nodes, Component) ->
-    Timeout = application:get_env(?APP_NAME, cluster_status_caching_time, timer:seconds(10)),
-    utils:pmap(
-        fun(Node) ->
-            Result =
-                try
-                    Ans = gen_server:call({?NODE_MANAGER_NAME, Node}, {healthcheck, Component}, Timeout),
-                    ?debug("Healthcheck: ~p ~p, ans: ~p", [Component, Node, Ans]),
-                    Ans
-                catch T:M ->
-                    ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
-                    {error, timeout}
-                end,
-            {Node, Result}
-        end, Nodes).
+    utils:pmap(fun(Node) ->
+        {Node, try
+            Ans = gen_server:call({?NODE_MANAGER_NAME, Node}, {healthcheck, Component},
+                ?CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT),
+            ?debug("Healthcheck: ~p ~p, ans: ~p", [Component, Node, Ans]),
+            Ans
+        catch T:M ->
+            ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
+            {error, timeout}
+        end}
+    end, Nodes).
 
 
 %%--------------------------------------------------------------------
@@ -125,47 +128,45 @@ check_status(Nodes, Component) ->
     WorkerStatuses :: [{node(), [component_status()]}],
     ListenerStatuses :: [{node(), [component_status()]}]) -> {status(), [node_status()]}.
 calculate_cluster_status(Nodes, NodeManagerStatuses, DispatcherStatuses, WorkerStatuses, ListenerStatuses) ->
-    NodeStatuses =
-        lists:map(
-            fun(Node) ->
-                % Get all statuses for this node
-                % They are all in form:
-                % {ModuleName, ok | out_of_sync | {error, atom()}}
-                AllStatuses = lists:flatten([
-                    {?NODE_MANAGER_NAME, proplists:get_value(Node, NodeManagerStatuses)},
-                    {dispatcher, proplists:get_value(Node, DispatcherStatuses)},
-                    lists:usort(proplists:get_value(Node, WorkerStatuses)),
-                    lists:usort(proplists:get_value(Node, ListenerStatuses))
-                ]),
-                % Calculate status of the whole node - it's the same as the worst status of any child
-                % ok < out_of_sync < error
-                % i. e. if any node component has an error, node's status will be 'error'.
-                NodeStatus = lists:foldl(
-                    fun({_, CurrentStatus}, Acc) ->
-                        case {Acc, CurrentStatus} of
-                            {ok, {error, _}} -> error;
-                            {ok, OkOrOOS} -> OkOrOOS;
-                            {out_of_sync, {error, _}} -> error;
-                            {out_of_sync, _} -> out_of_sync;
-                            _ -> error
-                        end
-                    end, ok, AllStatuses),
-                {Node, NodeStatus, AllStatuses}
-            end, Nodes),
+    NodeStatuses = lists:map(fun(Node) ->
+        % Get all statuses for this node
+        % They are all in form:
+        % {ModuleName, ok | out_of_sync | {error, atom()}}
+        AllStatuses = lists:flatten([
+            {?NODE_MANAGER_NAME, proplists:get_value(Node, NodeManagerStatuses)},
+            {dispatcher, proplists:get_value(Node, DispatcherStatuses)},
+            lists:usort(proplists:get_value(Node, WorkerStatuses)),
+            lists:usort(proplists:get_value(Node, ListenerStatuses))
+        ]),
+        % Calculate status of the whole node - it's the same as the worst status of any child
+        % if any node component has an error, node's status will be 'error'.
+        NodeStatus = lists:foldl(fun({_, CurrentStatus}, Acc) ->
+            get_worse_status(Acc, CurrentStatus)
+        end, ok, AllStatuses),
+        {Node, NodeStatus, AllStatuses}
+    end, Nodes),
     % Calculate status of the whole application - it's the same as the worst status of any node
-    % ok > out_of_sync > Other (any other atom means an error)
     % If any node has an error, app's status will be 'error'.
-    AppStatus = lists:foldl(
-        fun({_, CurrentStatus, _}, Acc) ->
-            case {Acc, CurrentStatus} of
-                {ok, Any} -> Any;
-                {out_of_sync, ok} -> out_of_sync;
-                {out_of_sync, Any} -> Any;
-                _ -> error
-            end
-        end, ok, NodeStatuses),
+    AppStatus = lists:foldl(fun({_, CurrentStatus, _}, Acc) ->
+        get_worse_status(Acc, CurrentStatus)
+    end, ok, NodeStatuses),
     % Sort node statuses by node name
     ?debug("Cluster status: ~p", [AppStatus]),
     {AppStatus, lists:usort(NodeStatuses)}.
 
 
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Compares two statuses and returns worse one.
+%% ok < out_of_sync < error
+%% {error, Desc} is converted to error.
+%% @end
+%%--------------------------------------------------------------------
+-spec get_worse_status(status(), status()) -> status().
+get_worse_status(Status, {error, _}) ->
+    get_worse_status(Status, error);
+get_worse_status(ok, Any) -> Any;
+get_worse_status(out_of_sync, error) -> error;
+get_worse_status(out_of_sync, _) -> out_of_sync;
+get_worse_status(_, _) -> error.

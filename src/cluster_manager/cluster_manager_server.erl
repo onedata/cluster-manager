@@ -52,7 +52,7 @@
 -export_type([cluster_init_step/0]).
 
 -define(STEP_TIMEOUT(Step),
-    application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), 60)).
+    application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), timer:seconds(10))).
 
 %%%===================================================================
 %%% API
@@ -183,7 +183,7 @@ handle_cast({cm_conn_req, Node}, State) ->
     {noreply, NewState};
 
 handle_cast({Step, Node}, #state{current_step = Step} = State) ->
-    NewState = mark_node_finished_cluster_init_step(Node, State),
+    NewState = mark_cluster_init_step_finished_for_node(Node, State),
     {noreply, NewState};
 
 handle_cast({cluster_init_step_failure, Node}, State) ->
@@ -202,8 +202,8 @@ handle_cast(update_advices, State) ->
     NewState = update_advices(State),
     {noreply, NewState};
 
-handle_cast({check_step_timeout, Step, Retries}, State) ->
-    NewState = check_step_timeout(Step, State, Retries),
+handle_cast({check_step_finished, Step, Retries}, State) ->
+    NewState = check_step_finished(Step, State, Retries),
     {noreply, NewState};
 
 handle_cast(stop, State) ->
@@ -275,7 +275,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Receive heartbeat from node_manager
+%% Receive connection request from node_manager
 %% @end
 %%--------------------------------------------------------------------
 -spec cm_conn_req(State :: state(), SenderNode :: node()) -> NewState :: state().
@@ -307,8 +307,8 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
 %% when all nodes are ready to go to next step.
 %% @end
 %%--------------------------------------------------------------------
--spec mark_node_finished_cluster_init_step(node(), state()) -> state().
-mark_node_finished_cluster_init_step(Node, State) ->
+-spec mark_cluster_init_step_finished_for_node(node(), state()) -> state().
+mark_cluster_init_step_finished_for_node(Node, State) ->
     #state{
         ready_nodes = ReadyNodes,
         in_progress_nodes = InProgressNodes,
@@ -348,11 +348,11 @@ handle_next_step_internal(#state{ready_nodes = Nodes, current_step = CurrentStep
     NextStep = get_next_step(CurrentStep),
     ?info("Starting new step: ~p", [NextStep]),
 
-    gen_server:cast(self(), {check_step_timeout, NextStep, ?STEP_TIMEOUT(NextStep)}),
+    gen_server:cast(self(), {check_step_finished, NextStep, ?STEP_TIMEOUT(NextStep) div 1000}),
     case NextStep of
         ready -> State#state{current_step = NextStep};
         _ ->
-            send_to_all_nodes(Nodes, {cluster_init_step, NextStep}),
+            send_to_nodes(Nodes, {cluster_init_step, NextStep}),
             State#state{ready_nodes = [], in_progress_nodes = Nodes, current_step = NextStep}
     end.
 
@@ -366,7 +366,7 @@ handle_next_step_internal(#state{ready_nodes = Nodes, current_step = CurrentStep
 -spec handle_error(state(), node()) -> state().
 handle_error(#state{current_step = Step} = State, Node) ->
     ?critical("Cluster init failure on node ~p, step '~p'. Stopping cluster.", [Node, Step]),
-    send_to_all_nodes(get_all_nodes(State), force_stop),
+    send_to_nodes(get_all_nodes(State), force_stop),
     #state{}.
 
 
@@ -379,34 +379,35 @@ handle_error(#state{current_step = Step} = State, Node) ->
 %% In ready step checks cluster status.
 %% @end
 %%--------------------------------------------------------------------
--spec check_step_timeout(cluster_init_step(), state(), RetriesLeft :: non_neg_integer()) -> state().
-check_step_timeout(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
+-spec check_step_finished(cluster_init_step(), state(), RetriesLeft :: non_neg_integer()) -> state().
+check_step_finished(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
     ?critical("Cluster init failure - timeout during step '~p'. Stopping cluster. Offending nodes: ~p", [Step, Nodes]),
-    send_to_all_nodes(get_all_nodes(State), force_stop),
+    send_to_nodes(get_all_nodes(State), force_stop),
     #state{};
-check_step_timeout(ready, State, RetriesLeft) ->
+check_step_finished(ready, State, RetriesLeft) ->
     case cluster_status:get_cluster_status(get_all_nodes(State), node_manager_internal) of
         {ok, {ok, _NodeStatuses}} ->
             ?info("Cluster ready"),
-            send_to_all_nodes(get_all_nodes(State), {cluster_init_step, ready});
+            send_to_nodes(get_all_nodes(State), {cluster_init_step, ready});
         {ok, {GenericError, NodeStatuses}}  ->
             ?debug("Internal healthcheck failed: ~p", [{GenericError, NodeStatuses}]),
-            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_timeout, ready, RetriesLeft-1}});
+            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, RetriesLeft-1}});
         Error ->
             ?error("Internal healthcheck failed: ~p", [Error]),
             gen_server:cast(self(), cluster_init_step_failure)
     end,
     State;
 
-check_step_timeout(Step, #state{current_step = Step} = State, RetriesLeft) ->
+check_step_finished(Step, #state{current_step = Step} = State, RetriesLeft) ->
     case is_cluster_ready_in_step(State) of
         true -> State;
         false ->
             erlang:send_after(timer:seconds(1), self(),
-                {timer, {check_step_timeout, Step, RetriesLeft - 1}}),
+                {timer, {check_step_finished, Step, RetriesLeft - 1}}),
             State
     end;
-check_step_timeout(_Step, State, _RetriesLeft) ->
+check_step_finished(Step, #state{current_step = CurrentStep} = State, _RetriesLeft)
+    when Step =/= CurrentStep ->
     % Cluster already in next step
     State.
 
@@ -608,8 +609,8 @@ get_all_nodes(#state{ready_nodes = Nodes, in_progress_nodes = InProgressNodes}) 
 %% Sends given message to node manager on all given nodes.
 %% @end
 %%--------------------------------------------------------------------
--spec send_to_all_nodes([node()], any()) -> ok.
-send_to_all_nodes(Nodes, Msg) ->
+-spec send_to_nodes([node()], any()) -> ok.
+send_to_nodes(Nodes, Msg) ->
     lists:foreach(fun(Node) ->
         gen_server:cast({?NODE_MANAGER_NAME, Node}, Msg)
     end, Nodes).
@@ -622,4 +623,3 @@ get_next_step(start_default_workers) -> start_custom_workers;
 get_next_step(start_custom_workers) -> upgrade_cluster;
 get_next_step(upgrade_cluster) -> start_listeners;
 get_next_step(start_listeners) -> ready.
-
