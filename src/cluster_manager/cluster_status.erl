@@ -25,7 +25,7 @@
 -endif.
 
 -type status() :: ok | out_of_sync | error | {error, ErrorDesc :: atom()}.
--type component() :: node_manager | node_manager_internal | dispatcher | workers | listeners.
+-type component() :: node_manager | cluster_manager_connection | dispatcher | workers | listeners.
 -type component_status() :: {module(), status()}.
 -type node_status() :: {node(), status(), [component_status()]}.
 
@@ -64,7 +64,6 @@ get_cluster_status(Nodes) ->
 
 
 %%--------------------------------------------------------------------
-%% @private
 %% @doc
 %% Calculates cluster status based on healthcheck results received from node managers.
 %% @end

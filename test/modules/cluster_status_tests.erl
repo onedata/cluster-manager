@@ -5,7 +5,7 @@
 %%% cited in 'LICENSE.txt'.
 %%% @end
 %%%--------------------------------------------------------------------
-%%% @doc Unit tests for nagios_handler module.
+%%% @doc Unit tests for cluster status module.
 %%% @end
 %%%--------------------------------------------------------------------
 -module(cluster_status_tests).

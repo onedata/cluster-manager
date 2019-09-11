@@ -85,7 +85,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 -spec stop() -> ok.
 stop() ->
-    gen_server:cast({global, ?CLUSTER_MANAGER}, stop).
+    gen_server:cast(self(), stop).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -147,10 +147,6 @@ handle_call(cluster_status, _From, #state{current_step = Step} = State) ->
     end,
     {reply, Response, State};
 
-handle_call(get_node_to_sync, _From, State) ->
-    Ans = get_node_to_sync(State),
-    {reply, Ans, State};
-
 handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) ->
     MemSum = lists:foldl(fun({_Node, NodeState}, Sum) ->
         Sum + NodeState#node_state.mem_usage
@@ -202,8 +198,8 @@ handle_cast(update_advices, State) ->
     NewState = update_advices(State),
     {noreply, NewState};
 
-handle_cast({check_step_finished, Step, Retries}, State) ->
-    NewState = check_step_finished(Step, State, Retries),
+handle_cast({check_step_finished, Step, Timeout}, State) ->
+    NewState = check_step_finished(Step, State, Timeout),
     {noreply, NewState};
 
 handle_cast(stop, State) ->
@@ -227,7 +223,7 @@ handle_cast(_Request, State) ->
     NewState :: term(),
     Timeout :: non_neg_integer() | infinity.
 handle_info({timer, Msg}, State) ->
-    gen_server:cast({global, ?CLUSTER_MANAGER}, Msg),
+    gen_server:cast(self(), Msg),
     {noreply, State};
 
 handle_info({nodedown, Node}, State) ->
@@ -321,7 +317,7 @@ mark_cluster_init_step_finished_for_node(Node, State) ->
     case is_cluster_ready_in_step(NewState) of
         true ->
             ?info("Cluster init step '~p' complete", [Step]),
-            gen_server:cast({global, ?CLUSTER_MANAGER}, next_step),
+            gen_server:cast(self(), next_step),
             NewState;
         false ->
             NewState
@@ -374,39 +370,38 @@ handle_error(#state{current_step = Step} = State, Node) ->
 %% @private
 %% @doc
 %% Checks whether given step is finished.
-%% Stops all cluster nodes when cluster initialization is not finished in given step
-%% and there are no retries left.
+%% Stops all cluster nodes when cluster initialization is not finished in given step.
 %% In ready step checks cluster status.
 %% @end
 %%--------------------------------------------------------------------
--spec check_step_finished(cluster_init_step(), state(), RetriesLeft :: non_neg_integer()) -> state().
+-spec check_step_finished(cluster_init_step(), state(), Timeout :: non_neg_integer()) -> state().
 check_step_finished(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
     ?critical("Cluster init failure - timeout during step '~p'. Stopping cluster. Offending nodes: ~p", [Step, Nodes]),
     send_to_nodes(get_all_nodes(State), force_stop),
     #state{};
-check_step_finished(ready, State, RetriesLeft) ->
-    case cluster_status:get_cluster_status(get_all_nodes(State), node_manager_internal) of
+check_step_finished(ready, State, Timeout) ->
+    case cluster_status:get_cluster_status(get_all_nodes(State), cluster_manager_connection) of
         {ok, {ok, _NodeStatuses}} ->
             ?info("Cluster ready"),
             send_to_nodes(get_all_nodes(State), {cluster_init_step, ready});
         {ok, {GenericError, NodeStatuses}}  ->
             ?debug("Internal healthcheck failed: ~p", [{GenericError, NodeStatuses}]),
-            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, RetriesLeft-1}});
+            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, Timeout-1}});
         Error ->
             ?error("Internal healthcheck failed: ~p", [Error]),
             gen_server:cast(self(), cluster_init_step_failure)
     end,
     State;
 
-check_step_finished(Step, #state{current_step = Step} = State, RetriesLeft) ->
+check_step_finished(Step, #state{current_step = Step} = State, Timeout) ->
     case is_cluster_ready_in_step(State) of
         true -> State;
         false ->
             erlang:send_after(timer:seconds(1), self(),
-                {timer, {check_step_finished, Step, RetriesLeft - 1}}),
+                {timer, {check_step_finished, Step, Timeout - 1}}),
             State
     end;
-check_step_finished(Step, #state{current_step = CurrentStep} = State, _RetriesLeft)
+check_step_finished(Step, #state{current_step = CurrentStep} = State, _Timeout)
     when Step =/= CurrentStep ->
     % Cluster already in next step
     State.
@@ -529,27 +524,6 @@ node_down(Node, State) ->
         node_states = NewNodeStates,
         singleton_modules = NewSingletons
     }.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Get node that can be used by new nodes to synchronize with
-%% (i. e. attach to mnesia cluster). This node should be one of active
-%% nodes of existing cluster, or if there isn't any, the first of nodes
-%% that are initializing.
-%%
-%% In some cases synchronization requires waiting for this node to finish
-%% initialization process. It is up to caller to wait and ensure that he can
-%% safely synchronize.
-%% @end
-%%--------------------------------------------------------------------
--spec get_node_to_sync(#state{}) -> {ok, node()} | {error, term()}.
-get_node_to_sync(#state{ready_nodes = [], in_progress_nodes = []}) ->
-    {error, no_nodes_connected};
-get_node_to_sync(#state{ready_nodes = [FirstNode | _]}) ->
-    {ok, FirstNode};
-get_node_to_sync(#state{in_progress_nodes = [FirstInProgressNode | _]}) ->
-    {ok, FirstInProgressNode}.
 
 %%--------------------------------------------------------------------
 %% @private
