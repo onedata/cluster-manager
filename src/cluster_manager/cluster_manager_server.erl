@@ -103,7 +103,7 @@ stop() ->
     | {ok, State, hibernate}
     | {stop, Reason :: term()}
     | ignore,
-    State :: term(),
+    State :: state(),
     Timeout :: non_neg_integer() | infinity.
 init(_) ->
     process_flag(trap_exit, true),
@@ -117,7 +117,7 @@ init(_) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec handle_call(Request :: term(), From :: {pid(), Tag :: term()},
-    State :: term()) -> Result when
+    State :: state()) -> Result when
     Result :: {reply, Reply, NewState}
     | {reply, Reply, NewState, Timeout}
     | {reply, Reply, NewState, hibernate}
@@ -127,7 +127,7 @@ init(_) ->
     | {stop, Reason, Reply, NewState}
     | {stop, Reason, NewState},
     Reply :: term(),
-    NewState :: term(),
+    NewState :: state(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
 handle_call(get_nodes, _From, #state{current_step = Step, ready_nodes = Nodes} = State) ->
@@ -151,7 +151,7 @@ handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) 
     MemSum = lists:foldl(fun({_Node, NodeState}, Sum) ->
         Sum + NodeState#node_state.mem_usage
     end, 0, NodeStates),
-    {reply, MemSum/max(1, length(NodeStates)), State};
+    {reply, MemSum / max(1, length(NodeStates)), State};
 
 handle_call({register_singleton_module, Module, Node}, _From, State) ->
     {Ans, NewState} = register_singleton_module(Module, Node, State),
@@ -167,12 +167,12 @@ handle_call(_Request, _From, State) ->
 %% Handling cast messages
 %% @end
 %%--------------------------------------------------------------------
--spec handle_cast(Request :: term(), State :: term()) -> Result when
+-spec handle_cast(Request :: term(), State :: state()) -> Result when
     Result :: {noreply, NewState}
     | {noreply, NewState, Timeout}
     | {noreply, NewState, hibernate}
     | {stop, Reason :: term(), NewState},
-    NewState :: term(),
+    NewState :: state(),
     Timeout :: non_neg_integer() | infinity.
 handle_cast({cm_conn_req, Node}, State) ->
     NewState = cm_conn_req(State, Node),
@@ -215,12 +215,12 @@ handle_cast(_Request, State) ->
 %% Handling all non call/cast messages
 %% @end
 %%--------------------------------------------------------------------
--spec handle_info(Info :: timeout | term(), State :: term()) -> Result when
+-spec handle_info(Info :: timeout | term(), State :: state()) -> Result when
     Result :: {noreply, NewState}
     | {noreply, NewState, Timeout}
     | {noreply, NewState, hibernate}
     | {stop, Reason :: term(), NewState},
-    NewState :: term(),
+    NewState :: state(),
     Timeout :: non_neg_integer() | infinity.
 handle_info({timer, Msg}, State) ->
     gen_server:cast(self(), Msg),
@@ -243,7 +243,7 @@ handle_info(_Request, State) ->
 %% with Reason. The return value is ignored.
 %% @end
 %%--------------------------------------------------------------------
--spec terminate(Reason, State :: term()) -> Any :: term() when
+-spec terminate(Reason, State :: state()) -> Any :: term() when
     Reason :: normal
     | shutdown
     | {shutdown, term()}
@@ -257,8 +257,8 @@ terminate(_Reason, _State) ->
 %% Convert process state when code is changed
 %% @end
 %%--------------------------------------------------------------------
--spec code_change(OldVsn, State :: term(), Extra :: term()) -> Result when
-    Result :: {ok, NewState :: term()} | {error, Reason :: term()},
+-spec code_change(OldVsn, State :: state(), Extra :: term()) -> Result when
+    Result :: {ok, NewState :: state()} | {error, Reason :: term()},
     OldVsn :: Vsn | {down, Vsn},
     Vsn :: term().
 code_change(_OldVsn, State, _Extra) ->
@@ -386,7 +386,7 @@ check_step_finished(ready, State, Timeout) ->
             send_to_nodes(get_all_nodes(State), {cluster_init_step, ready});
         {ok, {GenericError, NodeStatuses}}  ->
             ?debug("Internal healthcheck failed: ~p", [{GenericError, NodeStatuses}]),
-            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, Timeout-1}});
+            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, Timeout - 1}});
         Error ->
             ?error("Internal healthcheck failed: ~p", [Error]),
             gen_server:cast(self(), cluster_init_step_failure)
@@ -429,7 +429,7 @@ create_hash_ring(Nodes) ->
 %% Receive heartbeat from a node manager and store its state.
 %% @end
 %%--------------------------------------------------------------------
--spec heartbeat(State :: #state{}, NodeState :: #node_state{}) -> #state{}.
+-spec heartbeat(State :: state(), NodeState :: #node_state{}) -> state().
 heartbeat(#state{node_states = NodeStates, last_heartbeat = LastHeartbeat} = State, NodeState) ->
     #node_state{node = Node} = NodeState,
     ?debug("Heartbeat from node ~p", [Node]),
@@ -443,7 +443,7 @@ heartbeat(#state{node_states = NodeStates, last_heartbeat = LastHeartbeat} = Sta
 %% Calculate current load balancing advices, broadcast them and schedule next update.
 %% @end
 %%--------------------------------------------------------------------
--spec update_advices(State :: #state{}) -> #state{}.
+-spec update_advices(State :: state()) -> state().
 update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbeats, lb_state = LBState,
     singleton_modules = Singletons} = State) ->
     ?debug("Updating load balancing advices"),
@@ -482,8 +482,8 @@ update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbea
 %% Checks if singleton module can be started.
 %% @end
 %%--------------------------------------------------------------------
--spec register_singleton_module(Module :: atom(), Node :: node(), State :: #state{}) ->
-    {ok | already_started, #state{}}.
+-spec register_singleton_module(Module :: atom(), Node :: node(), State :: state()) ->
+    {ok | already_started, state()}.
 register_singleton_module(Module, Node, #state{singleton_modules = Singletons} = State) ->
     UsedNode = proplists:get_value(Module, Singletons),
     case UsedNode of
@@ -502,7 +502,7 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 %% Delete node from active nodes list, change state num and inform everone
 %% @end
 %%--------------------------------------------------------------------
--spec node_down(Node :: atom(), State :: #state{}) -> #state{}.
+-spec node_down(Node :: atom(), State :: state()) -> state().
 node_down(Node, State) ->
     #state{ready_nodes = Nodes,
         in_progress_nodes = InProgressNodes,
@@ -561,7 +561,7 @@ get_worker_num() ->
 %% Check if number of ready nodes is correct (matches configured).
 %% @end
 %%--------------------------------------------------------------------
--spec is_cluster_ready_in_step(#state{}) -> boolean().
+-spec is_cluster_ready_in_step(state()) -> boolean().
 is_cluster_ready_in_step(#state{ready_nodes = Nodes}) ->
     get_worker_num() == length(Nodes).
 
@@ -572,7 +572,7 @@ is_cluster_ready_in_step(#state{ready_nodes = Nodes}) ->
 %% Get all connected nodes
 %% @end
 %%--------------------------------------------------------------------
--spec get_all_nodes(#state{}) -> [node()].
+-spec get_all_nodes(state()) -> [node()].
 get_all_nodes(#state{ready_nodes = Nodes, in_progress_nodes = InProgressNodes}) ->
     lists:usort(Nodes ++ InProgressNodes).
 
