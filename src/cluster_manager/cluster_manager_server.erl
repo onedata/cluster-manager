@@ -36,7 +36,7 @@
 %% to process used to monitor if nodes are alive.
 -record(state, {
     current_step = init :: cluster_init_step(),
-    ready_nodes = [] :: [Node :: node()],
+    nodes_ready_in_step = [] :: [Node :: node()],
     in_progress_nodes = [] :: [Node :: node()],
     singleton_modules = [] :: [{Module :: atom(), Node :: node() | undefined}],
     node_states = [] :: [{Node :: node(), NodeState :: #node_state{}}],
@@ -130,7 +130,7 @@ init(_) ->
     NewState :: state(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-handle_call(get_nodes, _From, #state{current_step = Step, ready_nodes = Nodes} = State) ->
+handle_call(get_nodes, _From, #state{current_step = Step, nodes_ready_in_step = Nodes} = State) ->
     Response = case Step of
         ready -> {ok, Nodes};
         _ -> {error, cluster_not_ready}
@@ -187,7 +187,7 @@ handle_cast({cluster_init_step_failure, Node}, State) ->
     {noreply, NewState};
 
 handle_cast(next_step, State) ->
-    NewState = handle_next_step(State),
+    NewState = proceed_to_next_step(State),
     {noreply, NewState};
 
 handle_cast({heartbeat, NodeState}, State) ->
@@ -299,19 +299,19 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Marks given node finished in given step. Informs cluster manager
-%% when all nodes are ready to go to next step.
+%% Marks given node ready in given step. Informs cluster manager
+%% when all nodes are ready to proceed to next step.
 %% @end
 %%--------------------------------------------------------------------
 -spec mark_cluster_init_step_finished_for_node(node(), state()) -> state().
 mark_cluster_init_step_finished_for_node(Node, State) ->
     #state{
-        ready_nodes = ReadyNodes,
+        nodes_ready_in_step = ReadyNodes,
         in_progress_nodes = InProgressNodes,
         current_step = Step
     } = State,
     NewState = State#state{
-        ready_nodes = add_node_to_list(Node, ReadyNodes),
+        nodes_ready_in_step = add_node_to_list(Node, ReadyNodes),
         in_progress_nodes = lists:delete(Node, InProgressNodes)
     },
     case is_cluster_ready_in_step(NewState) of
@@ -330,17 +330,17 @@ mark_cluster_init_step_finished_for_node(Node, State) ->
 %% Moves cluster to next step. Informs all cluster nodes.
 %% @end
 %%--------------------------------------------------------------------
--spec handle_next_step(state()) -> state().
-handle_next_step(#state{ready_nodes = Nodes, current_step = start_default_workers} = State) ->
+-spec proceed_to_next_step(state()) -> state().
+proceed_to_next_step(#state{nodes_ready_in_step = Nodes, current_step = init} = State) ->
     create_hash_ring(Nodes),
-    handle_next_step_internal(State);
-handle_next_step(State) ->
-    handle_next_step_internal(State).
+    proceed_to_next_step_common(State);
+proceed_to_next_step(State) ->
+    proceed_to_next_step_common(State).
 
 
 %% @private
--spec handle_next_step_internal(state()) -> state().
-handle_next_step_internal(#state{ready_nodes = Nodes, current_step = CurrentStep} = State) ->
+-spec proceed_to_next_step_common(state()) -> state().
+proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = CurrentStep} = State) ->
     NextStep = get_next_step(CurrentStep),
     ?info("Starting new step: ~p", [NextStep]),
 
@@ -349,7 +349,7 @@ handle_next_step_internal(#state{ready_nodes = Nodes, current_step = CurrentStep
         ready -> State#state{current_step = NextStep};
         _ ->
             send_to_nodes(Nodes, {cluster_init_step, NextStep}),
-            State#state{ready_nodes = [], in_progress_nodes = Nodes, current_step = NextStep}
+            State#state{nodes_ready_in_step = [], in_progress_nodes = Nodes, current_step = NextStep}
     end.
 
 
@@ -504,7 +504,7 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 %%--------------------------------------------------------------------
 -spec node_down(Node :: atom(), State :: state()) -> state().
 node_down(Node, State) ->
-    #state{ready_nodes = Nodes,
+    #state{nodes_ready_in_step = Nodes,
         in_progress_nodes = InProgressNodes,
         node_states = NodeStates,
         singleton_modules = Singletons
@@ -519,7 +519,7 @@ node_down(Node, State) ->
             _ -> {M, N}
         end
     end, Singletons),
-    State#state{ready_nodes = NewNodes,
+    State#state{nodes_ready_in_step = NewNodes,
         in_progress_nodes = NewInProgressNodes,
         node_states = NewNodeStates,
         singleton_modules = NewSingletons
@@ -562,7 +562,7 @@ get_worker_num() ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_cluster_ready_in_step(state()) -> boolean().
-is_cluster_ready_in_step(#state{ready_nodes = Nodes}) ->
+is_cluster_ready_in_step(#state{nodes_ready_in_step = Nodes}) ->
     get_worker_num() == length(Nodes).
 
 
@@ -573,7 +573,7 @@ is_cluster_ready_in_step(#state{ready_nodes = Nodes}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec get_all_nodes(state()) -> [node()].
-get_all_nodes(#state{ready_nodes = Nodes, in_progress_nodes = InProgressNodes}) ->
+get_all_nodes(#state{nodes_ready_in_step = Nodes, in_progress_nodes = InProgressNodes}) ->
     lists:usort(Nodes ++ InProgressNodes).
 
 
