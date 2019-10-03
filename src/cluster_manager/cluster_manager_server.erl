@@ -504,26 +504,9 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 %%--------------------------------------------------------------------
 -spec node_down(Node :: atom(), State :: state()) -> state().
 node_down(Node, State) ->
-    #state{nodes_ready_in_step = Nodes,
-        in_progress_nodes = InProgressNodes,
-        node_states = NodeStates,
-        singleton_modules = Singletons
-    } = State,
-    ?error("Node down: ~p", [Node]),
-    NewNodes = Nodes -- [Node],
-    NewInProgressNodes = InProgressNodes -- [Node],
-    NewNodeStates = proplists:delete(Node, NodeStates),
-    NewSingletons = lists:map(fun({M, N}) ->
-        case N of
-            Node -> {M, undefined};
-            _ -> {M, N}
-        end
-    end, Singletons),
-    State#state{nodes_ready_in_step = NewNodes,
-        in_progress_nodes = NewInProgressNodes,
-        node_states = NewNodeStates,
-        singleton_modules = NewSingletons
-    }.
+    ?error("Node down: ~p. Stopping cluster", [Node]),
+    send_to_nodes(get_all_nodes(State), force_stop),
+    #state{}.
 
 %%--------------------------------------------------------------------
 %% @private
