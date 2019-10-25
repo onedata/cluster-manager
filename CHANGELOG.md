@@ -4,6 +4,12 @@
 CHANGELOG
 ---------
 
+### 19.02.0-rc2
+
+* VFS-5773 Added cluster stopping after node down
+* VFS-5699 Introduced steps in cluster initalization
+
+
 ### 19.02.0-rc1
 
 * VFS-5657 Enabled Ubuntu distribution package tag
