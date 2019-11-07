@@ -130,12 +130,8 @@ init(_) ->
     NewState :: state(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-handle_call(get_nodes, _From, #state{current_step = Step, nodes_ready_in_step = Nodes} = State) ->
-    Response = case Step of
-        ready -> {ok, Nodes};
-        _ -> {error, cluster_not_ready}
-    end,
-    {reply, Response, State};
+handle_call(get_nodes, _From, State) ->
+    {reply, {ok, get_all_nodes(State)}, State};
 
 handle_call(get_current_time, _From, State) ->
     {reply, time_utils:system_time_millis(), State};
