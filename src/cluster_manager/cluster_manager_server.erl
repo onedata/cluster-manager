@@ -130,6 +130,8 @@ init(_) ->
     NewState :: state(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
+handle_call(get_nodes, _From, #state{current_step = init} = State) ->
+    {reply, {error, cluster_not_ready}, State};
 handle_call(get_nodes, _From, State) ->
     {reply, {ok, get_all_nodes(State)}, State};
 
