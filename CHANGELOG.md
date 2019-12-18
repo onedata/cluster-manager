@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 19.02.1
+
+* Releasing new version 19.02.1
+
+
 ### 19.02.0-rc2
 
 * VFS-5773 Added cluster stopping after node down
