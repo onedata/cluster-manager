@@ -46,8 +46,8 @@
 
 
 -type state() :: #state{}.
--type cluster_init_step() :: init | start_default_workers | start_custom_workers
-| upgrade_cluster | start_listeners | ready.
+-type cluster_init_step() :: init | start_default_workers | start_upgrade_essential_workers 
+| upgrade_cluster | start_custom_workers | start_listeners | ready.
 
 -export_type([cluster_init_step/0]).
 
@@ -574,7 +574,8 @@ send_to_nodes(Nodes, Msg) ->
 %% @private
 -spec get_next_step(cluster_init_step()) -> cluster_init_step().
 get_next_step(init) -> start_default_workers;
-get_next_step(start_default_workers) -> start_custom_workers;
-get_next_step(start_custom_workers) -> upgrade_cluster;
-get_next_step(upgrade_cluster) -> start_listeners;
+get_next_step(start_default_workers) -> start_upgrade_essential_workers;
+get_next_step(start_upgrade_essential_workers) -> upgrade_cluster;
+get_next_step(upgrade_cluster) -> start_custom_workers;
+get_next_step(start_custom_workers) -> start_listeners;
 get_next_step(start_listeners) -> ready.
