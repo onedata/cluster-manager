@@ -53,7 +53,7 @@
 
 -define(STEP_TIMEOUT(Step),
     application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), timer:seconds(10))).
--define(KEY_CONNECTED_NODES, application:get_env(?APP_NAME, key_connected_nodes, 1)).
+-define(KEY_ASSOCIATED_NODES, application:get_env(?APP_NAME, key_associated_nodes, 1)).
 
 %%%===================================================================
 %%% API
@@ -414,7 +414,7 @@ check_step_finished(Step, #state{current_step = CurrentStep} = State, _Timeout)
 -spec create_hash_ring([node()]) -> ok.
 create_hash_ring(Nodes) ->
     ?info("Initializing Hash Ring."),
-    consistent_hashing:init(lists:usort(Nodes), ?KEY_CONNECTED_NODES),
+    consistent_hashing:init(lists:usort(Nodes), ?KEY_ASSOCIATED_NODES),
     ?info("Hash ring initialized successfully.").
 
 
