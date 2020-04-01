@@ -6,7 +6,7 @@ REPO            ?= cluster-manager
 DISTRIBUTION    ?= none
 export DISTRIBUTION
 
-RELEASE         ?= 1909
+RELEASE         ?= 2002
 PKG_REVISION    ?= $(shell git describe --tags --always)
 PKG_VERSION     ?= $(shell git describe --tags --always | tr - .)
 PKG_ID           = cluster-manager-$(PKG_VERSION)
