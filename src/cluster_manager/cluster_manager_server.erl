@@ -361,9 +361,7 @@ proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = C
 %%--------------------------------------------------------------------
 -spec handle_error(state(), node()) -> state().
 handle_error(#state{current_step = Step} = State, Node) ->
-    ?critical("Cluster init failure on node ~p, step '~p'. Stopping cluster.", [Node, Step]),
-    send_to_nodes(get_all_nodes(State), force_stop),
-    #state{}.
+    force_stop_cluster(State, "Cluster init failure - error in step '~w' on node ~w", [Step, Node]).
 
 
 %%--------------------------------------------------------------------
@@ -376,22 +374,20 @@ handle_error(#state{current_step = Step} = State, Node) ->
 %%--------------------------------------------------------------------
 -spec check_step_finished(cluster_init_step(), state(), Timeout :: non_neg_integer()) -> state().
 check_step_finished(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
-    ?critical("Cluster init failure - timeout during step '~p'. Stopping cluster. Offending nodes: ~p", [Step, Nodes]),
-    send_to_nodes(get_all_nodes(State), force_stop),
-    #state{};
+    force_stop_cluster(State, "Cluster init failure - timeout in step '~w' on nodes: ~w", [Step, Nodes]);
 check_step_finished(ready, State, Timeout) ->
     case cluster_status:get_cluster_status(get_all_nodes(State), cluster_manager_connection) of
         {ok, {ok, _NodeStatuses}} ->
             ?info("Cluster ready"),
-            send_to_nodes(get_all_nodes(State), {cluster_init_step, ready});
+            send_to_nodes(get_all_nodes(State), {cluster_init_step, ready}),
+            State;
         {ok, {GenericError, NodeStatuses}}  ->
             ?debug("Internal healthcheck failed: ~p", [{GenericError, NodeStatuses}]),
-            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, Timeout - 1}});
+            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, Timeout - 1}}),
+            State;
         Error ->
-            ?error("Internal healthcheck failed: ~p", [Error]),
-            gen_server:cast(self(), cluster_init_step_failure)
-    end,
-    State;
+            force_stop_cluster(State, "Internal healthcheck failed: ~p", [Error])
+    end;
 
 check_step_finished(Step, #state{current_step = Step} = State, Timeout) ->
     case is_cluster_ready_in_step(State) of
@@ -571,6 +567,23 @@ send_to_nodes(Nodes, Msg) ->
     lists:foreach(fun(Node) ->
         gen_server:cast({?NODE_MANAGER_NAME, Node}, Msg)
     end, Nodes).
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Force stops all nodes in the cluster with given readable reason.
+%% The cluster manager is not stopped and its state is reset.
+%% @end
+%%--------------------------------------------------------------------
+-spec force_stop_cluster(state(), string(), list()) -> state().
+force_stop_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
+    ReasonMsg = str_utils:format(ReasonFormatString, ReasonFormatArgs),
+    ?critical(ReasonMsg),
+    ?critical("Force stopping cluster..."),
+    send_to_nodes(get_all_nodes(State), {force_stop, ReasonMsg}),
+    #state{}.
+
 
 
 %% @private
