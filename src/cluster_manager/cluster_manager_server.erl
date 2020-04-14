@@ -495,9 +495,9 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 %%--------------------------------------------------------------------
 -spec node_down(Node :: atom(), State :: state()) -> state().
 node_down(Node, State) ->
-    ?error("Node down: ~p. Stopping cluster", [Node]),
-    send_to_nodes(get_all_nodes(State), force_stop),
-    #state{}.
+    ?error("Node down: ~p", [Node]),
+    send_to_nodes(get_all_nodes(State) -- [Node], {node_down, Node}),
+    State.
 
 %%--------------------------------------------------------------------
 %% @private
