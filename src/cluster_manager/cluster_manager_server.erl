@@ -498,6 +498,7 @@ node_down(Node, State) ->
     case consistent_hashing:get_nodes_assigned_per_label() of
         1 ->
             ?error("Node down: ~p. Stopping cluster", [Node]),
+            % Send also to failed node (it case of restart)
             send_to_nodes(get_all_nodes(State), force_stop),
             #state{};
         _ ->
