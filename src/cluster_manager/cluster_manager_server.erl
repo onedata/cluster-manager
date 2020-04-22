@@ -495,9 +495,17 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 %%--------------------------------------------------------------------
 -spec node_down(Node :: atom(), State :: state()) -> state().
 node_down(Node, State) ->
-    ?error("Node down: ~p. Stopping cluster", [Node]),
-    send_to_nodes(get_all_nodes(State), force_stop),
-    #state{}.
+    case consistent_hashing:get_nodes_assigned_per_label() of
+        1 ->
+            ?error("Node down: ~p. Stopping cluster", [Node]),
+            % Send also to failed node (in case of restart)
+            send_to_nodes(get_all_nodes(State), force_stop),
+            #state{};
+        _ ->
+            ?error("Node down: ~p", [Node]),
+            send_to_nodes(get_all_nodes(State) -- [Node], {node_down, Node}),
+            State
+    end.
 
 %%--------------------------------------------------------------------
 %% @private
