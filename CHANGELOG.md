@@ -4,6 +4,14 @@
 CHANGELOG
 ---------
 
+
+### 19.02.2
+
+* Releasing new version 19.02.2
+* Release tags
+* VFS-6254 Update ctool ref, increase timeouts of cluster init steps, improve logging
+
+
 ### 19.02.1
 
 * Releasing new version 19.02.1
