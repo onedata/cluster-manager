@@ -4,6 +4,17 @@
 CHANGELOG
 ---------
 
+### 20.02.0-beta3
+
+* VFS-5901 Application config can now be customized with arbitrary number
+  of config files added to /etc/cluster_manager/config.d/ directory.
+
+* VFS-5986 Update consistent_hashing
+* VFS-5986 Update consistent_hashing usage
+* VFS-6231 Added start_upgrade_essential_workers step
+* VFS-5983 Update ctool to support HA
+
+
 ### 19.02.1
 
 * Releasing new version 19.02.1
