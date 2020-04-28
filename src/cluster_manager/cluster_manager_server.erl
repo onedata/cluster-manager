@@ -497,12 +497,11 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 node_down(Node, State) ->
     case consistent_hashing:get_nodes_assigned_per_label() of
         1 ->
-            ?error("Node down: ~p. Stopping cluster", [Node]),
-            % Send also to failed node (in case of restart)
-            send_to_nodes(get_all_nodes(State), force_stop),
-            #state{};
+            force_stop_cluster(State, "Node down: ~p. Stopping cluster", [Node]);
         _ ->
             ?error("Node down: ~p", [Node]),
+            consistent_hashing:report_node_failure(Node),
+            % najpierw master powinien zaaplikowac backup?! a moze to nie konieczne (to chyba tylko wplywa na flush) - przeanalizowac
             send_to_nodes(get_all_nodes(State) -- [Node], {node_down, Node}),
             State
     end.
