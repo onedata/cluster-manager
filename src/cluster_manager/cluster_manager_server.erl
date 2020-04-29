@@ -41,7 +41,9 @@
     singleton_modules = [] :: [{Module :: atom(), Node :: node() | undefined}],
     node_states = [] :: [{Node :: node(), NodeState :: #node_state{}}],
     last_heartbeat = [] :: [{Node :: node(), Timestamp :: integer()}],
-    lb_state = undefined :: load_balancing:load_balancing_state() | undefined
+    lb_state = undefined :: load_balancing:load_balancing_state() | undefined,
+    restartedNode :: unefined | node(),
+    nodes_to_ack_restart = [] :: [node()]
 }).
 
 
@@ -202,12 +204,19 @@ handle_cast({check_step_finished, Step, Timeout}, State) ->
     {noreply, NewState};
 
 handle_cast({restart_init_done, Node}, State) ->
-    spawn(fun() ->
-        send_to_nodes(get_all_nodes(State) -- [Node], {node_up, Node}),
-        % TODO - porzzadne czekanie (zebrac potwierdzenia)
-        gen_server:cast({?NODE_MANAGER_NAME, Node}, finish_restart)
-    end),
-    {noreply, State};
+    SendToNodes = get_all_nodes(State) -- [Node],
+    send_to_nodes(SendToNodes, {node_up, Node}),
+    {noreply, State#state{restartedNode = Node, nodes_to_ack_restart = SendToNodes}};
+
+handle_cast({restart_init_ack, Node}, #state{nodes_to_ack_restart = AckNodes, restartedNode = RestartedNode} = State) ->
+    AckNodes2 = AckNodes -- [Node],
+    case AckNodes2 of
+        [] ->
+            gen_server:cast({?NODE_MANAGER_NAME, RestartedNode}, finish_restart),
+            {noreply, State#state{restartedNode = undefined, nodes_to_ack_restart = AckNodes2}};
+        _ ->
+            {noreply, State#state{nodes_to_ack_restart = AckNodes2}}
+    end;
 
 handle_cast({restart_done, Node}, State) ->
     send_to_nodes(get_all_nodes(State) -- [Node], {node_ready, Node}),
@@ -426,7 +435,7 @@ check_step_finished(Step, #state{current_step = CurrentStep} = State, _Timeout)
 -spec create_hash_ring([node()]) -> ok.
 create_hash_ring(Nodes) ->
     ?info("Initializing Hash Ring."),
-    consistent_hashing:init(lists:usort(Nodes), ?KEY_ASSOCIATED_NODES),
+    consistent_hashing:init(lists:usort(Nodes), 2),
     ?info("Hash ring initialized successfully.").
 
 

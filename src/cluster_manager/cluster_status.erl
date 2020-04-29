@@ -101,9 +101,13 @@ check_status(Nodes, Component) ->
                 ?CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT),
             ?debug("Healthcheck: ~p ~p, ans: ~p", [Component, Node, Ans]),
             Ans
-        catch T:M ->
-            ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
-            [{all_modules, {error, timeout}}]
+        catch
+            _:{{nodedown, _}, _} ->
+                ?debug("Connection error to ~p at ~p: nodedown", [?NODE_MANAGER_NAME, Node]),
+                [{Component, {error, nodedown}}];
+            T:M ->
+                ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
+                [{Component, {error, timeout}}]
         end}
     end, Nodes).
 
