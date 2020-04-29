@@ -48,8 +48,9 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec get_cluster_status([node()]) -> {ok, {status(), [node_status()]}} | {error, term()}.
-get_cluster_status(Nodes) ->
+get_cluster_status(Nodes0) ->
     GetStatus = fun() ->
+        Nodes = Nodes0 -- consistent_hashing:get_failed_nodes(),
         Status = get_cluster_status(Nodes, node_manager),
         case Status of
             % Save cluster status in cache, but only if there was no error
@@ -102,7 +103,7 @@ check_status(Nodes, Component) ->
             Ans
         catch T:M ->
             ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
-            {error, timeout}
+            [{all_modules, {error, timeout}}]
         end}
     end, Nodes).
 

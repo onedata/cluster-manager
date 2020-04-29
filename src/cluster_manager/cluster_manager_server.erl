@@ -201,6 +201,18 @@ handle_cast({check_step_finished, Step, Timeout}, State) ->
     NewState = check_step_finished(Step, State, Timeout),
     {noreply, NewState};
 
+handle_cast({restart_init_done, Node}, State) ->
+    spawn(fun() ->
+        send_to_nodes(get_all_nodes(State) -- [Node], {node_up, Node}),
+        % TODO - porzzadne czekanie (zebrac potwierdzenia)
+        gen_server:cast({?NODE_MANAGER_NAME, Node}, finish_restart)
+    end),
+    {noreply, State};
+
+handle_cast({restart_done, Node}, State) ->
+    send_to_nodes(get_all_nodes(State) -- [Node], {node_ready, Node}),
+    {noreply, State};
+
 handle_cast(stop, State) ->
     {stop, normal, State};
 
@@ -278,6 +290,10 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
     ?info("Connection request from node: ~p", [SenderNode]),
     case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
+            consistent_hashing:report_node_recovery(SenderNode),
+            consistent_hashing:replicate_ring_to_nodes([SenderNode]),
+            gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, init_restart),
+            ?info("Restart initialized on node: ~p", [SenderNode]),
             State;
         false ->
             ?info("New node: ~p", [SenderNode]),
