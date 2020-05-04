@@ -297,6 +297,7 @@ code_change(_OldVsn, State, _Extra) ->
 -spec cm_conn_req(State :: state(), SenderNode :: node()) -> NewState :: state().
 cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
     ?info("Connection request from node: ~p", [SenderNode]),
+    erlang:monitor_node(SenderNode, true),
     case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
             consistent_hashing:report_node_recovery(SenderNode),
@@ -307,7 +308,6 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
         false ->
             ?info("New node: ~p", [SenderNode]),
             try
-                erlang:monitor_node(SenderNode, true),
                 NewInProgressNodes = add_node_to_list(SenderNode, InProgressNodes),
                 gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, {cluster_init_step, init}),
                 State#state{in_progress_nodes = NewInProgressNodes}
