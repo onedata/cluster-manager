@@ -42,20 +42,32 @@
     node_states = [] :: [{Node :: node(), NodeState :: #node_state{}}],
     last_heartbeat = [] :: [{Node :: node(), Timestamp :: integer()}],
     lb_state = undefined :: load_balancing:load_balancing_state() | undefined,
-    restartedNode :: unefined | node(),
-    nodes_to_ack_restart = [] :: [node()]
+    nodes_restart_handling_status = #{} :: restart_handling_status()
 }).
 
 
 -type state() :: #state{}.
 -type cluster_init_step() :: init | start_default_workers | start_upgrade_essential_workers 
 | upgrade_cluster | start_custom_workers | start_listeners | ready.
+% nodes restart statuses - map #{restarted node => [nodes to acknowledge processing information that node is up]}
+-type restart_handling_status() :: #{node() => [node()]}.
 
 -export_type([cluster_init_step/0]).
 
 -define(STEP_TIMEOUT(Step),
     application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), timer:seconds(10))).
 -define(KEY_ASSOCIATED_NODES, application:get_env(?APP_NAME, key_associated_nodes, 1)).
+
+% Broadcasting node failure/recovery
+-define(NODE_DOWN(Node), {node_down, Node}).
+-define(NODE_UP(Node), {node_up, Node}).
+-define(NODE_READY(Node), {node_ready, Node}).
+% Node restart protocol
+-define(INIT_RESTART, init_restart).
+-define(RESTART_INITIALIZED(Node), {restart_initialized, Node}).
+-define(NODE_UP_MSG_PROCESSED(SenderNode, RestartedNode), {node_up_msg_processed, SenderNode, RestartedNode}).
+-define(FINISH_RESTART, finish_restart).
+-define(RESTART_FINISHED(Node), {restart_finished, Node}).
 
 %%%===================================================================
 %%% API
@@ -141,12 +153,15 @@ handle_call(get_nodes, _From, State) ->
 handle_call(get_current_time, _From, State) ->
     {reply, time_utils:system_time_millis(), State};
 
-handle_call(cluster_status, _From, #state{current_step = Step} = State) ->
-    Response = case Step of
-        ready -> cluster_status:get_cluster_status(get_all_nodes(State));
-        _ -> {error, cluster_not_ready}
-    end,
-    {reply, Response, State};
+handle_call(cluster_status, From, #state{current_step = Step} = State) ->
+    spawn(fun() ->
+        Response = case Step of
+            ready -> cluster_status:get_cluster_status(get_all_nodes(State));
+            _ -> {error, cluster_not_ready}
+        end,
+        gen_server:reply(From, Response)
+    end),
+    {noreply, State};
 
 handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) ->
     MemSum = lists:foldl(fun({_Node, NodeState}, Sum) ->
@@ -203,23 +218,14 @@ handle_cast({check_step_finished, Step, Timeout}, State) ->
     NewState = check_step_finished(Step, State, Timeout),
     {noreply, NewState};
 
-handle_cast({restart_init_done, Node}, State) ->
-    SendToNodes = get_all_nodes(State) -- [Node],
-    send_to_nodes(SendToNodes, {node_up, Node}),
-    {noreply, State#state{restartedNode = Node, nodes_to_ack_restart = SendToNodes}};
+handle_cast(?RESTART_INITIALIZED(Node), State) ->
+    {noreply, handle_node_restart_init(Node, State)};
 
-handle_cast({restart_init_ack, Node}, #state{nodes_to_ack_restart = AckNodes, restartedNode = RestartedNode} = State) ->
-    AckNodes2 = AckNodes -- [Node],
-    case AckNodes2 of
-        [] ->
-            gen_server:cast({?NODE_MANAGER_NAME, RestartedNode}, finish_restart),
-            {noreply, State#state{restartedNode = undefined, nodes_to_ack_restart = AckNodes2}};
-        _ ->
-            {noreply, State#state{nodes_to_ack_restart = AckNodes2}}
-    end;
+handle_cast(?NODE_UP_MSG_PROCESSED(SenderNode, RestartedNode), State) ->
+    {noreply, handle_node_up_ack(SenderNode, RestartedNode, State)};
 
-handle_cast({restart_done, Node}, State) ->
-    send_to_nodes(get_all_nodes(State) -- [Node], {node_ready, Node}),
+handle_cast(?RESTART_FINISHED(Node), State) ->
+    handle_node_restart_finish(Node, State),
     {noreply, State};
 
 handle_cast(stop, State) ->
@@ -300,10 +306,7 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
     erlang:monitor_node(SenderNode, true),
     case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
-            consistent_hashing:report_node_recovery(SenderNode),
-            consistent_hashing:replicate_ring_to_nodes([SenderNode]),
-            gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, init_restart),
-            ?info("Restart initialized on node: ~p", [SenderNode]),
+            init_node_restart(SenderNode),
             State;
         false ->
             ?info("New node: ~p", [SenderNode]),
@@ -525,9 +528,8 @@ node_down(Node, State) ->
             force_stop_cluster(State, "Node down: ~p. Stopping cluster", [Node]);
         _ ->
             ?error("Node down: ~p", [Node]),
-            consistent_hashing:report_node_failure(Node),
-            % najpierw master powinien zaaplikowac backup?! a moze to nie konieczne (to chyba tylko wplywa na flush) - przeanalizowac
-            send_to_nodes(get_all_nodes(State) -- [Node], {node_down, Node}),
+            ok = consistent_hashing:report_node_failure(Node),
+            send_to_nodes(get_all_nodes(State) -- [Node], ?NODE_DOWN(Node)),
             State
     end.
 
@@ -621,3 +623,37 @@ get_next_step(start_upgrade_essential_workers) -> upgrade_cluster;
 get_next_step(upgrade_cluster) -> start_custom_workers;
 get_next_step(start_custom_workers) -> start_listeners;
 get_next_step(start_listeners) -> ready.
+
+%%%===================================================================
+%%% Node restart handling
+%%%===================================================================
+
+-spec init_node_restart(node()) -> ok.
+init_node_restart(Node) ->
+    ok = consistent_hashing:report_node_recovery(Node),
+    ok = consistent_hashing:replicate_ring_to_nodes([Node]),
+    gen_server:cast({?NODE_MANAGER_NAME, Node}, ?INIT_RESTART),
+    ?info("Restart initialized on node: ~p", [Node]),
+    ok.
+
+-spec handle_node_restart_init(node(), state()) -> state().
+handle_node_restart_init(Node, #state{nodes_restart_handling_status = Status} = State) ->
+    OtherNodes = get_all_nodes(State) -- [Node],
+    send_to_nodes(OtherNodes, ?NODE_UP(Node)),
+    State#state{nodes_restart_handling_status = Status#{Node => OtherNodes}}.
+
+-spec handle_node_up_ack(node(), node(), state()) -> state().
+handle_node_up_ack(SenderNode, RestartedNode, #state{nodes_restart_handling_status = Status} = State) ->
+    NodesToAck = maps:get(RestartedNode, Status, []),
+    NodesToAck2 = NodesToAck -- [SenderNode],
+    case NodesToAck2 of
+        [] ->
+            gen_server:cast({?NODE_MANAGER_NAME, RestartedNode}, ?FINISH_RESTART),
+            State#state{nodes_restart_handling_status = maps:remove(RestartedNode, Status)};
+        _ ->
+            State#state{nodes_restart_handling_status = Status#{RestartedNode => NodesToAck2}}
+    end.
+
+-spec handle_node_restart_finish(node(), state()) -> ok.
+handle_node_restart_finish(Node, State) ->
+    send_to_nodes(get_all_nodes(State) -- [Node], {node_ready, Node}).
