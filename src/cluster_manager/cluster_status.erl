@@ -48,7 +48,6 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec get_cluster_status([node()]) -> {ok, {status(), [node_status()]}} | {error, term()}.
-% TODO - async w node manager?
 get_cluster_status(Nodes) ->
     GetStatus = fun() ->
         Status = get_cluster_status(Nodes, node_manager),
