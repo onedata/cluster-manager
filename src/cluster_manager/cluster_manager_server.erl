@@ -662,4 +662,4 @@ handle_node_up_ack(SenderNode, RestartedNode, #state{nodes_restart_handling_stat
 
 -spec handle_node_restart_finish(node(), state()) -> ok.
 handle_node_restart_finish(Node, State) ->
-    send_to_nodes(get_all_nodes(State) -- [Node], {node_ready, Node}).
+    send_to_nodes(get_all_nodes(State) -- [Node], ?NODE_READY(Node)).
