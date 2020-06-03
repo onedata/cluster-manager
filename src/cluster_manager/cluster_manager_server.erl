@@ -35,7 +35,7 @@
 %% nodes, dispatchers and workers in cluster. It also contains reference
 %% to process used to monitor if nodes are alive.
 -record(state, {
-    current_step = init :: cluster_init_step(),
+    current_step = init_connection :: cluster_init_step(),
     nodes_ready_in_step = [] :: [Node :: node()],
     in_progress_nodes = [] :: [Node :: node()],
     singleton_modules = [] :: [{Module :: atom(), Node :: node() | undefined}],
@@ -47,8 +47,8 @@
 
 
 -type state() :: #state{}.
--type cluster_init_step() :: init | start_default_workers | start_upgrade_essential_workers 
-| upgrade_cluster | start_custom_workers | start_listeners | ready.
+-type cluster_init_step() :: init_connection | start_default_workers | start_upgrade_essential_workers
+| upgrade_cluster | start_custom_workers | db_and_workers_ready | start_listeners | cluster_ready.
 % nodes restart statuses - map #{restarted node => [nodes to acknowledge processing information that node is up]}
 -type restart_handling_status() :: #{node() => [node()]}.
 
@@ -145,7 +145,7 @@ init(_) ->
     NewState :: state(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-handle_call(get_nodes, _From, #state{current_step = init} = State) ->
+handle_call(get_nodes, _From, #state{current_step = init_connection} = State) ->
     {reply, {error, cluster_not_initialized}, State};
 handle_call(get_nodes, _From, State) ->
     {reply, {ok, get_all_nodes(State)}, State};
@@ -153,15 +153,13 @@ handle_call(get_nodes, _From, State) ->
 handle_call(get_current_time, _From, State) ->
     {reply, time_utils:system_time_millis(), State};
 
-handle_call(cluster_status, From, #state{current_step = Step} = State) ->
+handle_call(cluster_status, From, #state{current_step = cluster_ready} = State) ->
     spawn(fun() ->
-        Response = case Step of
-            ready -> cluster_status:get_cluster_status(get_all_nodes(State));
-            _ -> {error, cluster_not_ready}
-        end,
-        gen_server:reply(From, Response)
+        gen_server:reply(From, cluster_status:get_cluster_status(get_all_nodes(State)))
     end),
     {noreply, State};
+handle_call(cluster_status, _From, State) ->
+    {reply, {error, cluster_not_ready}, State};
 
 handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) ->
     MemSum = lists:foldl(fun({_Node, NodeState}, Sum) ->
@@ -194,13 +192,19 @@ handle_cast({cm_conn_req, Node}, State) ->
     NewState = cm_conn_req(State, Node),
     {noreply, NewState};
 
-handle_cast({Step, Node}, #state{current_step = Step} = State) ->
+handle_cast({cluster_init_step_report, Node, Step, success}, #state{current_step = Step} = State) ->
     NewState = mark_cluster_init_step_finished_for_node(Node, State),
     {noreply, NewState};
 
-handle_cast({cluster_init_step_failure, Node}, State) ->
+handle_cast({cluster_init_step_report, Node, Step, failure}, #state{current_step = Step} = State) ->
     NewState = handle_error(State, Node),
     {noreply, NewState};
+
+handle_cast({cluster_init_step_report, Node, Step, Result}, State) ->
+    ?error("Unexpected cluster_init_step_report (~w ~w ~w) while in state ~p", [
+        Node, Step, Result, State
+    ]),
+    {noreply, State};
 
 handle_cast(next_step, State) ->
     NewState = proceed_to_next_step(State),
@@ -312,7 +316,7 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
             ?info("New node: ~p", [SenderNode]),
             try
                 NewInProgressNodes = add_node_to_list(SenderNode, InProgressNodes),
-                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, {cluster_init_step, init}),
+                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, {cluster_init_step, init_connection}),
                 State#state{in_progress_nodes = NewInProgressNodes}
             catch
                 _:Error ->
@@ -343,7 +347,7 @@ mark_cluster_init_step_finished_for_node(Node, State) ->
     },
     case is_cluster_ready_in_step(NewState) of
         true ->
-            ?info("Cluster init step '~p' complete", [Step]),
+            ?info("Cluster init step '~s' complete", [Step]),
             gen_server:cast(self(), next_step),
             NewState;
         false ->
@@ -358,7 +362,7 @@ mark_cluster_init_step_finished_for_node(Node, State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec proceed_to_next_step(state()) -> state().
-proceed_to_next_step(#state{nodes_ready_in_step = Nodes, current_step = init} = State) ->
+proceed_to_next_step(#state{nodes_ready_in_step = Nodes, current_step = init_connection} = State) ->
     create_hash_ring(Nodes),
     proceed_to_next_step_common(State);
 proceed_to_next_step(State) ->
@@ -373,7 +377,8 @@ proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = C
 
     gen_server:cast(self(), {check_step_finished, NextStep, ?STEP_TIMEOUT(NextStep) div 1000}),
     case NextStep of
-        ready -> State#state{current_step = NextStep};
+        cluster_ready ->
+            State#state{current_step = NextStep};
         _ ->
             send_to_nodes(Nodes, {cluster_init_step, NextStep}),
             State#state{nodes_ready_in_step = [], in_progress_nodes = Nodes, current_step = NextStep}
@@ -402,15 +407,15 @@ handle_error(#state{current_step = Step} = State, Node) ->
 -spec check_step_finished(cluster_init_step(), state(), Timeout :: non_neg_integer()) -> state().
 check_step_finished(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
     force_stop_cluster(State, "Cluster init failure - timeout in step '~w' on nodes: ~w", [Step, Nodes]);
-check_step_finished(ready, State, Timeout) ->
+check_step_finished(cluster_ready, State, Timeout) ->
     case cluster_status:get_cluster_status(get_all_nodes(State), cluster_manager_connection) of
         {ok, {ok, _NodeStatuses}} ->
             ?info("Cluster ready"),
-            send_to_nodes(get_all_nodes(State), {cluster_init_step, ready}),
+            send_to_nodes(get_all_nodes(State), {cluster_init_step, cluster_ready}),
             State;
         {ok, {GenericError, NodeStatuses}}  ->
             ?debug("Internal healthcheck failed: ~p", [{GenericError, NodeStatuses}]),
-            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ready, Timeout - 1}}),
+            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, cluster_ready, Timeout - 1}}),
             State;
         Error ->
             force_stop_cluster(State, "Internal healthcheck failed: ~p", [Error])
@@ -617,12 +622,13 @@ force_stop_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
 
 %% @private
 -spec get_next_step(cluster_init_step()) -> cluster_init_step().
-get_next_step(init) -> start_default_workers;
+get_next_step(init_connection) -> start_default_workers;
 get_next_step(start_default_workers) -> start_upgrade_essential_workers;
 get_next_step(start_upgrade_essential_workers) -> upgrade_cluster;
 get_next_step(upgrade_cluster) -> start_custom_workers;
-get_next_step(start_custom_workers) -> start_listeners;
-get_next_step(start_listeners) -> ready.
+get_next_step(start_custom_workers) -> db_and_workers_ready;
+get_next_step(db_and_workers_ready) -> start_listeners;
+get_next_step(start_listeners) -> cluster_ready.
 
 %%%===================================================================
 %%% Node restart handling
