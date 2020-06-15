@@ -154,6 +154,8 @@ handle_call(get_current_time, _From, State) ->
     {reply, time_utils:system_time_millis(), State};
 
 handle_call(cluster_status, From, #state{current_step = cluster_ready} = State) ->
+    % Spawn as getting cluster status could block cluster_manager
+    % (procedure involves calls to all node_managers)
     spawn(fun() ->
         gen_server:reply(From, cluster_status:get_cluster_status(get_all_nodes(State)))
     end),
