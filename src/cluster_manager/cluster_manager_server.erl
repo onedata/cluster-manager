@@ -635,20 +635,21 @@ init_node_recovery(Node) ->
     ok.
 
 -spec handle_node_recovery_initialized(node(), state()) -> state().
-handle_node_recovery_initialized(Node, #state{pending_recovery_acknowledgements = Status} = State) ->
+handle_node_recovery_initialized(Node, #state{pending_recovery_acknowledgements = AcknowledgementsMap} = State) ->
     OtherNodes = get_all_nodes(State) -- [Node],
     send_to_nodes(OtherNodes, ?NODE_UP(Node)),
-    State#state{pending_recovery_acknowledgements = Status#{Node => OtherNodes}}.
+    State#state{pending_recovery_acknowledgements = AcknowledgementsMap#{Node => OtherNodes}}.
 
 -spec handle_recovery_ack(node(), node(), state()) -> state().
-handle_recovery_ack(AcknowledgingNode, RecoveredNode, #state{pending_recovery_acknowledgements = Status} = State) ->
-    PendingNodes = maps:get(RecoveredNode, Status, []),
+handle_recovery_ack(AcknowledgingNode, RecoveredNode,
+    #state{pending_recovery_acknowledgements = AcknowledgementsMap} = State) ->
+    PendingNodes = maps:get(RecoveredNode, AcknowledgementsMap, []),
     case lists:delete(AcknowledgingNode, PendingNodes) of
         [] ->
             gen_server:cast({?NODE_MANAGER_NAME, RecoveredNode}, ?FINALIZE_RECOVERY),
-            State#state{pending_recovery_acknowledgements = maps:remove(RecoveredNode, Status)};
+            State#state{pending_recovery_acknowledgements = maps:remove(RecoveredNode, AcknowledgementsMap)};
         StillPendingNodes ->
-            State#state{pending_recovery_acknowledgements = Status#{RecoveredNode => StillPendingNodes}}
+            State#state{pending_recovery_acknowledgements = AcknowledgementsMap#{RecoveredNode => StillPendingNodes}}
     end.
 
 -spec handle_node_recovery_finish(node(), state()) -> ok.
