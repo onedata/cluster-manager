@@ -19,6 +19,7 @@
 
 -behaviour(gen_server).
 
+-include("node_management_protocol.hrl").
 -include("global_definitions.hrl").
 -include_lib("ctool/include/logging.hrl").
 -include_lib("ctool/include/monitoring/monitoring.hrl").
@@ -42,32 +43,21 @@
     node_states = [] :: [{Node :: node(), NodeState :: #node_state{}}],
     last_heartbeat = [] :: [{Node :: node(), Timestamp :: integer()}],
     lb_state = undefined :: load_balancing:load_balancing_state() | undefined,
-    nodes_restart_handling_status = #{} :: restart_handling_status()
+    pending_recovery_acknowledgements = #{} :: pending_recovery_acknowledgements()
 }).
 
 
 -type state() :: #state{}.
--type cluster_init_step() :: init_connection | start_default_workers | start_upgrade_essential_workers
-| upgrade_cluster | start_custom_workers | db_and_workers_ready | start_listeners | cluster_ready.
-% nodes restart statuses - map #{restarted node => [nodes to acknowledge processing information that node is up]}
--type restart_handling_status() :: #{node() => [node()]}.
+-type cluster_init_step() :: ?INIT_CONNECTION | ?START_DEFAULT_WORKERS | ?START_UPGRADE_ESSENTIAL_WORKERS
+| ?UPGRADE_CLUSTER | ?START_CUSTOM_WORKERS | ?DB_AND_WORKERS_READY | ?START_LISTENERS | ?CLUSTER_READY.
+% stores information which nodes are yet to acknowledge a recovered node
+-type pending_recovery_acknowledgements() :: #{node() => [node()]}.
 
 -export_type([cluster_init_step/0]).
 
 -define(STEP_TIMEOUT(Step),
     application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), timer:seconds(10))).
 -define(KEY_ASSOCIATED_NODES, application:get_env(?APP_NAME, key_associated_nodes, 1)).
-
-% Broadcasting node failure/recovery
--define(NODE_DOWN(Node), {node_down, Node}).
--define(NODE_UP(Node), {node_up, Node}).
--define(NODE_READY(Node), {node_ready, Node}).
-% Node restart protocol
--define(INIT_RESTART, init_restart).
--define(RESTART_INITIALIZED(Node), {restart_initialized, Node}).
--define(NODE_UP_MSG_PROCESSED(SenderNode, RestartedNode), {node_up_msg_processed, SenderNode, RestartedNode}).
--define(FINISH_RESTART, finish_restart).
--define(RESTART_FINISHED(Node), {restart_finished, Node}).
 
 %%%===================================================================
 %%% API
@@ -224,14 +214,14 @@ handle_cast({check_step_finished, Step, Timeout}, State) ->
     NewState = check_step_finished(Step, State, Timeout),
     {noreply, NewState};
 
-handle_cast(?RESTART_INITIALIZED(Node), State) ->
-    {noreply, handle_node_restart_init(Node, State)};
+handle_cast(?RECOVERY_INITIALIZED(Node), State) ->
+    {noreply, handle_node_recovery_initialized(Node, State)};
 
-handle_cast(?NODE_UP_MSG_PROCESSED(SenderNode, RestartedNode), State) ->
-    {noreply, handle_node_up_ack(SenderNode, RestartedNode, State)};
+handle_cast(?RECOVERY_ACKNOWLEDGED(AcknowledgingNode, RecoveredNode), State) ->
+    {noreply, handle_recovery_ack(AcknowledgingNode, RecoveredNode, State)};
 
-handle_cast(?RESTART_FINISHED(Node), State) ->
-    handle_node_restart_finish(Node, State),
+handle_cast(?RECOVERY_FINALIZED(Node), State) ->
+    handle_node_recovery_finish(Node, State),
     {noreply, State};
 
 handle_cast(stop, State) ->
@@ -312,13 +302,13 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
     erlang:monitor_node(SenderNode, true),
     case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
-            init_node_restart(SenderNode),
+            init_node_recovery(SenderNode),
             State;
         false ->
             ?info("New node: ~p", [SenderNode]),
             try
                 NewInProgressNodes = add_node_to_list(SenderNode, InProgressNodes),
-                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, {cluster_init_step, init_connection}),
+                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, ?INIT_STEP_MSG(?INIT_CONNECTION)),
                 State#state{in_progress_nodes = NewInProgressNodes}
             catch
                 _:Error ->
@@ -379,10 +369,10 @@ proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = C
 
     gen_server:cast(self(), {check_step_finished, NextStep, ?STEP_TIMEOUT(NextStep) div 1000}),
     case NextStep of
-        cluster_ready ->
+        ?CLUSTER_READY ->
             State#state{current_step = NextStep};
         _ ->
-            send_to_nodes(Nodes, {cluster_init_step, NextStep}),
+            send_to_nodes(Nodes, ?INIT_STEP_MSG(NextStep)),
             State#state{nodes_ready_in_step = [], in_progress_nodes = Nodes, current_step = NextStep}
     end.
 
@@ -409,15 +399,15 @@ handle_error(#state{current_step = Step} = State, Node) ->
 -spec check_step_finished(cluster_init_step(), state(), Timeout :: non_neg_integer()) -> state().
 check_step_finished(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
     force_stop_cluster(State, "Cluster init failure - timeout in step '~w' on nodes: ~w", [Step, Nodes]);
-check_step_finished(cluster_ready, State, Timeout) ->
+check_step_finished(?CLUSTER_READY, State, Timeout) ->
     case cluster_status:get_cluster_status(get_all_nodes(State), cluster_manager_connection) of
         {ok, {ok, _NodeStatuses}} ->
             ?info("Cluster ready"),
-            send_to_nodes(get_all_nodes(State), {cluster_init_step, cluster_ready}),
+            send_to_nodes(get_all_nodes(State), ?INIT_STEP_MSG(?CLUSTER_READY)),
             State;
         {ok, {GenericError, NodeStatuses}}  ->
             ?debug("Internal healthcheck failed: ~p", [{GenericError, NodeStatuses}]),
-            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, cluster_ready, Timeout - 1}}),
+            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ?CLUSTER_READY, Timeout - 1}}),
             State;
         Error ->
             force_stop_cluster(State, "Internal healthcheck failed: ~p", [Error])
@@ -497,7 +487,7 @@ update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbea
             % Send LB advices
             lists:foreach(
                 fun({Node, AdviceForDispatchers}) ->
-                    gen_server:cast({?NODE_MANAGER_NAME, Node}, {update_lb_advices, AdviceForDispatchers})
+                    gen_server:cast({?NODE_MANAGER_NAME, Node}, ?UPDATE_LB_ADVICES(AdviceForDispatchers))
                 end, AdvicesForDispatchers),
             State#state{lb_state = NewState}
     end.
@@ -617,51 +607,50 @@ force_stop_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
     ReasonMsg = str_utils:format(ReasonFormatString, ReasonFormatArgs),
     ?critical(ReasonMsg),
     ?critical("Force stopping cluster..."),
-    send_to_nodes(get_all_nodes(State), {force_stop, ReasonMsg}),
+    send_to_nodes(get_all_nodes(State), ?FORCE_STOP(ReasonMsg)),
     #state{}.
 
 
 
 %% @private
 -spec get_next_step(cluster_init_step()) -> cluster_init_step().
-get_next_step(init_connection) -> start_default_workers;
-get_next_step(start_default_workers) -> start_upgrade_essential_workers;
-get_next_step(start_upgrade_essential_workers) -> upgrade_cluster;
-get_next_step(upgrade_cluster) -> start_custom_workers;
-get_next_step(start_custom_workers) -> db_and_workers_ready;
-get_next_step(db_and_workers_ready) -> start_listeners;
-get_next_step(start_listeners) -> cluster_ready.
+get_next_step(?INIT_CONNECTION) -> ?START_DEFAULT_WORKERS;
+get_next_step(?START_DEFAULT_WORKERS) -> ?START_UPGRADE_ESSENTIAL_WORKERS;
+get_next_step(?START_UPGRADE_ESSENTIAL_WORKERS) -> ?UPGRADE_CLUSTER;
+get_next_step(?UPGRADE_CLUSTER) -> ?START_CUSTOM_WORKERS;
+get_next_step(?START_CUSTOM_WORKERS) -> ?DB_AND_WORKERS_READY;
+get_next_step(?DB_AND_WORKERS_READY) -> ?START_LISTENERS;
+get_next_step(?START_LISTENERS) -> ?CLUSTER_READY.
 
 %%%===================================================================
-%%% Node restart handling
+%%% Node recovery handling
 %%%===================================================================
 
--spec init_node_restart(node()) -> ok.
-init_node_restart(Node) ->
+-spec init_node_recovery(node()) -> ok.
+init_node_recovery(Node) ->
     ok = consistent_hashing:report_node_recovery(Node),
     ok = consistent_hashing:replicate_ring_to_nodes([Node]),
-    gen_server:cast({?NODE_MANAGER_NAME, Node}, ?INIT_RESTART),
-    ?info("Restart initialized on node: ~p", [Node]),
+    gen_server:cast({?NODE_MANAGER_NAME, Node}, ?INITIALIZE_RECOVERY),
+    ?info("Recovery initialized on node: ~p", [Node]),
     ok.
 
--spec handle_node_restart_init(node(), state()) -> state().
-handle_node_restart_init(Node, #state{nodes_restart_handling_status = Status} = State) ->
+-spec handle_node_recovery_initialized(node(), state()) -> state().
+handle_node_recovery_initialized(Node, #state{pending_recovery_acknowledgements = Status} = State) ->
     OtherNodes = get_all_nodes(State) -- [Node],
     send_to_nodes(OtherNodes, ?NODE_UP(Node)),
-    State#state{nodes_restart_handling_status = Status#{Node => OtherNodes}}.
+    State#state{pending_recovery_acknowledgements = Status#{Node => OtherNodes}}.
 
--spec handle_node_up_ack(node(), node(), state()) -> state().
-handle_node_up_ack(SenderNode, RestartedNode, #state{nodes_restart_handling_status = Status} = State) ->
-    NodesToAck = maps:get(RestartedNode, Status, []),
-    NodesToAck2 = NodesToAck -- [SenderNode],
-    case NodesToAck2 of
+-spec handle_recovery_ack(node(), node(), state()) -> state().
+handle_recovery_ack(AcknowledgingNode, RecoveredNode, #state{pending_recovery_acknowledgements = Status} = State) ->
+    PendingNodes = maps:get(RecoveredNode, Status, []),
+    case lists:delete(AcknowledgingNode, PendingNodes) of
         [] ->
-            gen_server:cast({?NODE_MANAGER_NAME, RestartedNode}, ?FINISH_RESTART),
-            State#state{nodes_restart_handling_status = maps:remove(RestartedNode, Status)};
-        _ ->
-            State#state{nodes_restart_handling_status = Status#{RestartedNode => NodesToAck2}}
+            gen_server:cast({?NODE_MANAGER_NAME, RecoveredNode}, ?FINALIZE_RECOVERY),
+            State#state{pending_recovery_acknowledgements = maps:remove(RecoveredNode, Status)};
+        StillPendingNodes ->
+            State#state{pending_recovery_acknowledgements = Status#{RecoveredNode => StillPendingNodes}}
     end.
 
--spec handle_node_restart_finish(node(), state()) -> ok.
-handle_node_restart_finish(Node, State) ->
+-spec handle_node_recovery_finish(node(), state()) -> ok.
+handle_node_recovery_finish(Node, State) ->
     send_to_nodes(get_all_nodes(State) -- [Node], ?NODE_READY(Node)).
