@@ -69,13 +69,20 @@ get_cluster_status(Nodes) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec get_cluster_status([node()], component()) -> {ok, {status(), [node_status()]}} | {error, term()}.
-get_cluster_status(Nodes, NodeManager) ->
+get_cluster_status(AllNodes, NodeManager) ->
+    FailedNodes = try
+        consistent_hashing:get_failed_nodes()
+    catch
+        _:_ -> [] % Hashing ring not initialized
+    end,
+
     try
-        NodeManagerStatuses = check_status(Nodes, NodeManager),
-        DispatcherStatuses = check_status(Nodes, dispatcher),
-        WorkerStatuses = check_status(Nodes, workers),
-        ListenerStatuses = check_status(Nodes, listeners),
-        ClusterStatus = calculate_cluster_status(Nodes, NodeManagerStatuses, DispatcherStatuses,
+        AliveNodes = AllNodes -- FailedNodes,
+        NodeManagerStatuses = check_status(AliveNodes, FailedNodes, NodeManager),
+        DispatcherStatuses = check_status(AliveNodes, FailedNodes, dispatcher),
+        WorkerStatuses = check_status(AliveNodes, FailedNodes, workers),
+        ListenerStatuses = check_status(AliveNodes, FailedNodes, listeners),
+        ClusterStatus = calculate_cluster_status(AllNodes, NodeManagerStatuses, DispatcherStatuses,
             WorkerStatuses, ListenerStatuses),
         {ok, ClusterStatus}
     catch
@@ -92,19 +99,29 @@ get_cluster_status(Nodes, NodeManager) ->
 %% Is run in parallel with one process per node.
 %% @end
 %%--------------------------------------------------------------------
--spec check_status([node()], component()) -> [{node(), component_status()}] | [{node(), [component_status()]}].
-check_status(Nodes, Component) ->
-    utils:pmap(fun(Node) ->
+-spec check_status([node()], [node()], component()) -> [{node(), component_status()}] | [{node(), [component_status()]}].
+check_status(AliveNodes, FailedNodes, Component) ->
+    AliveNodesStatus = utils:pmap(fun(Node) ->
         {Node, try
             Ans = gen_server:call({?NODE_MANAGER_NAME, Node}, {healthcheck, Component},
                 ?CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT),
             ?debug("Healthcheck: ~p ~p, ans: ~p", [Component, Node, Ans]),
             Ans
-        catch T:M ->
-            ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
-            {error, timeout}
+        catch
+            _:{{nodedown, _}, _} ->
+                ?debug("Connection error to ~p at ~p: nodedown", [?NODE_MANAGER_NAME, Node]),
+                [{Component, {error, nodedown}}];
+            T:M ->
+                ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
+                [{Component, {error, timeout}}]
         end}
-    end, Nodes).
+    end, AliveNodes),
+
+    FailedNodesStatus = lists:map(fun(Node) ->
+        {Node, [{Component, {error, nodedown}}]}
+    end, FailedNodes),
+
+    AliveNodesStatus ++ FailedNodesStatus.
 
 
 %%--------------------------------------------------------------------
