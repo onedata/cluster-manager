@@ -16,6 +16,7 @@
 % Node start protocol - generic message
 -define(INIT_STEP_MSG(Step), {cluster_init_step, Step}).
 % Node start protocol - steps
+% NOTE: upon any change, adjust env names related to timeouts in app.config
 -define(INIT_CONNECTION, init_connection).
 -define(START_DEFAULT_WORKERS, start_default_workers).
 -define(START_UPGRADE_ESSENTIAL_WORKERS, start_upgrade_essential_workers).
