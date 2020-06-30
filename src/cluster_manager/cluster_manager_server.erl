@@ -56,7 +56,7 @@
 -export_type([cluster_init_step/0]).
 
 -define(STEP_TIMEOUT(Step),
-    application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), timer:seconds(10))).
+    application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), timer:seconds(120))).
 -define(KEY_ASSOCIATED_NODES, application:get_env(?APP_NAME, key_associated_nodes, 1)).
 
 %%%===================================================================
