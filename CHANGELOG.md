@@ -4,6 +4,14 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 20.02.1
+
+-   **VFS-6288** Basic HA functionality (experimental) - protect
+    Oneprovider from single node failure
+-   **VFS-6474** Added initial support for XRootD storage, including
+    direct access to XRootD storages and importing of legacy data sets
+    stored on XRootD or EOS servers.
+
 ### 20.02.0-beta4
 
 ### 20.02.0-beta3
@@ -15,7 +23,9 @@ CHANGELOG
 -   VFS-5986 Update consistent\_hashing
 
 -   VFS-5986 Update consistent\_hashing usage
+
 -   VFS-6231 Added start\_upgrade\_essential\_workers step
+
 -   VFS-5983 Update ctool to support HA
 
 ### 19.02.3
