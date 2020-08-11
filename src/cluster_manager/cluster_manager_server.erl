@@ -582,7 +582,8 @@ force_stop_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
     ?critical(ReasonMsg),
     ?critical("Force stopping cluster..."),
     send_to_nodes(get_all_nodes(State), {force_stop, ReasonMsg}),
-    #state{}.
+    consistent_hashing:cleanup(),
+    #state{nodes_ready_in_step = [], in_progress_nodes = []}.
 
 
 
