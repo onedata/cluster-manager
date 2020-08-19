@@ -6,11 +6,24 @@ CHANGELOG
 
 ### 20.02.1
 
--   **VFS-6288** Basic HA functionality (experimental) - protect
-    Oneprovider from single node failure
+-   **VFS-6631** Rtransfer takes into account storage block size
+    choosing blocks to synchronize.
+-   **VFS-6607** Fix node restart with HA disabled.
+-   **VFS-6535** Updated S3 SDK library to 1.8.7.
 -   **VFS-6474** Added initial support for XRootD storage, including
     direct access to XRootD storages and importing of legacy data sets
     stored on XRootD or EOS servers.
+-   **VFS-6288** Basic HA functionality (experimental) - protect
+    Oneprovider from single node failure.
+-   **VFS-6261** Integrate high-level services with HA sub-system.
+-   **VFS-6184** Added the space owner concept. Space owner works like
+    \"root\" within the space - such user is allowed to perform all
+    file/API operations, regardless of the assigned privileges and file
+    permissions / ACLs. Ownership can be assigned to any number of
+    users, and it is forbidden to leave a space without an owner -
+    ownership must be transferred first.
+-   **VFS-6167** Allow nodes adding and deleting in-fly basing on HA
+    sub-system.
 
 ### 20.02.0-beta4
 
