@@ -101,7 +101,7 @@ get_cluster_status(AllNodes, NodeManager) ->
 %%--------------------------------------------------------------------
 -spec check_status([node()], [node()], component()) -> [{node(), component_status()}] | [{node(), [component_status()]}].
 check_status(AliveNodes, FailedNodes, Component) ->
-    AliveNodesStatus = utils:pmap(fun(Node) ->
+    AliveNodesStatus = lists_utils:pmap(fun(Node) ->
         {Node, try
             Ans = gen_server:call({?NODE_MANAGER_NAME, Node}, {healthcheck, Component},
                 ?CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT),
