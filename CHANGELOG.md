@@ -1,8 +1,15 @@
-# Release notes for project cluster-manager
-
+Release notes for project cluster-manager
+=========================================
 
 CHANGELOG
 ---------
+
+### 19.02.4
+
+-   **VFS-6631** Rtransfer takes into account storage block size
+    choosing blocks to synchronize.
+-   **VFS-6607** Fix node restart with HA disabled.
+
 
 ### 19.02.3
 
