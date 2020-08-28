@@ -48,7 +48,7 @@
 
 
 -type state() :: #state{}.
--type cluster_init_step() :: ?INIT_CONNECTION | ?START_DEFAULT_WORKERS | ?START_UPGRADE_ESSENTIAL_WORKERS
+-type cluster_init_step() :: ?INIT_CONNECTION | ?START_DEFAULT_WORKERS | ?PREPARE_FOR_UPGRADE
 | ?UPGRADE_CLUSTER | ?START_CUSTOM_WORKERS | ?DB_AND_WORKERS_READY | ?START_LISTENERS | ?CLUSTER_READY.
 % stores information which nodes are yet to acknowledge a recovered node
 -type pending_recovery_acknowledgements() :: #{node() => [node()]}.
@@ -616,8 +616,8 @@ force_stop_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
 %% @private
 -spec get_next_step(cluster_init_step()) -> cluster_init_step().
 get_next_step(?INIT_CONNECTION) -> ?START_DEFAULT_WORKERS;
-get_next_step(?START_DEFAULT_WORKERS) -> ?START_UPGRADE_ESSENTIAL_WORKERS;
-get_next_step(?START_UPGRADE_ESSENTIAL_WORKERS) -> ?UPGRADE_CLUSTER;
+get_next_step(?START_DEFAULT_WORKERS) -> ?PREPARE_FOR_UPGRADE;
+get_next_step(?PREPARE_FOR_UPGRADE) -> ?UPGRADE_CLUSTER;
 get_next_step(?UPGRADE_CLUSTER) -> ?START_CUSTOM_WORKERS;
 get_next_step(?START_CUSTOM_WORKERS) -> ?DB_AND_WORKERS_READY;
 get_next_step(?DB_AND_WORKERS_READY) -> ?START_LISTENERS;
