@@ -10,7 +10,6 @@ CHANGELOG
     choosing blocks to synchronize.
 -   **VFS-6607** Fix node restart with HA disabled.
 
-
 ### 19.02.3
 
 * Releasing new version 19.02.3
