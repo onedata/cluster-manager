@@ -6,9 +6,6 @@ CHANGELOG
 
 ### 20.02.1
 
--   **VFS-6631** Rtransfer takes into account storage block size
-    choosing blocks to synchronize.
--   **VFS-6607** Fix node restart with HA disabled.
 -   **VFS-6535** Updated S3 SDK library to 1.8.7.
 -   **VFS-6474** Added initial support for XRootD storage, including
     direct access to XRootD storages and importing of legacy data sets
@@ -40,6 +37,12 @@ CHANGELOG
 -   VFS-6231 Added start\_upgrade\_essential\_workers step
 
 -   VFS-5983 Update ctool to support HA
+
+### 19.02.4
+
+-   **VFS-6631** Rtransfer takes into account storage block size
+    choosing blocks to synchronize.
+-   **VFS-6607** Fix node restart with HA disabled.
 
 ### 19.02.3
 
