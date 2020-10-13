@@ -4,6 +4,8 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 20.02.2
+
 ### 20.02.1
 
 -   **VFS-6535** Updated S3 SDK library to 1.8.7.
