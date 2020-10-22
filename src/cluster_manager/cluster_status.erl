@@ -59,7 +59,7 @@ get_cluster_status(Nodes) ->
                 {false, Status}
         end
     end,
-    {ok, ClusterStatus} = simple_cache:get(cluster_status_cache, GetStatus),
+    {ok, ClusterStatus} = node_cache:get(cluster_status_cache, GetStatus),
     ClusterStatus.
 
 
