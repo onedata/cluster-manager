@@ -113,6 +113,7 @@ stop() ->
 init(_) ->
     process_flag(trap_exit, true),
     gen_server:cast(self(), update_advices),
+    clock:try_to_restore_previous_synchronization(),
     {ok, #state{}}.
 
 %%--------------------------------------------------------------------
@@ -141,7 +142,7 @@ handle_call(get_nodes, _From, State) ->
     {reply, {ok, get_all_nodes(State)}, State};
 
 handle_call(get_current_time, _From, State) ->
-    {reply, time_utils:timestamp_millis(), State};
+    {reply, clock:timestamp_millis(), State};
 
 handle_call(cluster_status, From, #state{current_step = cluster_ready} = State) ->
     % Spawn as getting cluster status could block cluster_manager
@@ -450,7 +451,7 @@ heartbeat(#state{node_states = NodeStates, last_heartbeat = LastHeartbeat} = Sta
     #node_state{node = Node} = NodeState,
     ?debug("Heartbeat from node ~p", [Node]),
     NewNodeStates = [{Node, NodeState} | proplists:delete(Node, NodeStates)],
-    NewLastHeartbeat = [{Node, time_utils:timestamp_millis()} | proplists:delete(Node, LastHeartbeat)],
+    NewLastHeartbeat = [{Node, clock:timestamp_millis()} | proplists:delete(Node, LastHeartbeat)],
     State#state{node_states = NewNodeStates, last_heartbeat = NewLastHeartbeat}.
 
 %%--------------------------------------------------------------------
@@ -470,13 +471,13 @@ update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbea
             State;
         _ ->
             {_, NodeStates} = lists:unzip(NodeStatesMap),
-            Now = time_utils:timestamp_millis(),
+            Now = clock:timestamp_millis(),
             % Check which node managers are late with heartbeat ( > 2 * monitoring interval).
             % Assume full CPU usage on them.
             PrecheckedNodeStates = lists:map(
                 fun(#node_state{node = Node} = NodeState) ->
                     LastHeartbeat = (Now -
-                        proplists:get_value(Node, LastHeartbeats, time_utils:timestamp_millis())),
+                        proplists:get_value(Node, LastHeartbeats, clock:timestamp_millis())),
                     case LastHeartbeat > 2 * Interval of
                         true -> NodeState#node_state{cpu_usage = 100.0};
                         false -> NodeState
