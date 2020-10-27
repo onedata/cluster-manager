@@ -54,12 +54,12 @@ get_cluster_status(Nodes) ->
         case Status of
             % Save cluster status in cache, but only if there was no error
             {ok, {ok = _ClusterStatus, _NodeStatuses}} ->
-                {true, Status, ?CLUSTER_STATUS_CACHING_TIME};
+                {ok, Status, ?CLUSTER_STATUS_CACHING_TIME};
             _ ->
-                {false, Status}
+                {ok, Status, 0}
         end
     end,
-    {ok, ClusterStatus} = node_cache:get(cluster_status_cache, GetStatus),
+    {ok, ClusterStatus} = node_cache:acquire(cluster_status_cache, GetStatus),
     ClusterStatus.
 
 
