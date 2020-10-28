@@ -113,7 +113,6 @@ stop() ->
 init(_) ->
     process_flag(trap_exit, true),
     gen_server:cast(self(), update_advices),
-    clock:try_to_restore_previous_synchronization(),
     {ok, #state{}}.
 
 %%--------------------------------------------------------------------
