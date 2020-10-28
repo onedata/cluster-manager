@@ -32,7 +32,7 @@
 -export_type([status/0, component/0, component_status/0, node_status/0]).
 
 -define(CLUSTER_STATUS_CACHING_TIME,
-    application:get_env(?APP_NAME, cluster_status_caching_time, timer:minutes(5))).
+    application:get_env(?APP_NAME, cluster_status_caching_time, 300)). % 5 minutes
 
 -define(CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT,
     application:get_env(?APP_NAME, cluster_component_healthcheck_timeout, timer:seconds(10))).
