@@ -17,6 +17,7 @@
         kernel,
         stdlib,
         sasl,
+        ctool,
         lager
     ]},
     {mod, {cluster_manager, []}},
