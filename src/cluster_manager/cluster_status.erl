@@ -32,7 +32,7 @@
 -export_type([status/0, component/0, component_status/0, node_status/0]).
 
 -define(CLUSTER_STATUS_CACHING_TIME,
-    application:get_env(?APP_NAME, cluster_status_caching_time, 300)). % 5 minutes
+    application:get_env(?APP_NAME, cluster_status_caching_time_seconds, 15)).
 
 -define(CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT,
     application:get_env(?APP_NAME, cluster_component_healthcheck_timeout, timer:seconds(10))).
@@ -49,7 +49,7 @@
 %%--------------------------------------------------------------------
 -spec get_cluster_status([node()]) -> {ok, {status(), [node_status()]}} | {error, term()}.
 get_cluster_status(Nodes) ->
-    GetStatus = fun() ->
+    {ok, ClusterStatus} = node_cache:acquire(cluster_status_cache, fun() ->
         Status = get_cluster_status(Nodes, node_manager),
         case Status of
             % Save cluster status in cache, but only if there was no error
@@ -58,8 +58,7 @@ get_cluster_status(Nodes) ->
             _ ->
                 {ok, Status, 0}
         end
-    end,
-    {ok, ClusterStatus} = node_cache:acquire(cluster_status_cache, GetStatus),
+    end),
     ClusterStatus.
 
 
