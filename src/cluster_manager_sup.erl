@@ -55,6 +55,7 @@ start_link() ->
     {ok, {SupFlags :: supervisor:sup_flags(), [ChildSpec :: supervisor:child_spec()]}}.
 init([]) ->
     node_cache:init(),
+    clock:try_to_restore_previous_synchronization(),
     {ok, {#{strategy => one_for_one, intensity => 5, period => 10}, [
         cluster_manager_spec()
     ]}}.
