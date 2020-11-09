@@ -33,6 +33,7 @@
 
 -define(CLUSTER_STATUS_CACHING_TIME,
     application:get_env(?APP_NAME, cluster_status_caching_time_seconds, 15)).
+-define(ERROR_STATUS_CACHING_TIME, 1).
 
 -define(CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT,
     application:get_env(?APP_NAME, cluster_component_healthcheck_timeout, timer:seconds(10))).
@@ -56,7 +57,7 @@ get_cluster_status(Nodes) ->
             {ok, {ok = _ClusterStatus, _NodeStatuses}} ->
                 {ok, Status, ?CLUSTER_STATUS_CACHING_TIME};
             _ ->
-                {ok, Status, 0}
+                {ok, Status, ?ERROR_STATUS_CACHING_TIME}
         end
     end),
     ClusterStatus.
