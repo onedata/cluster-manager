@@ -40,7 +40,6 @@
     {error, Reason :: term()}).
 start(_StartType, _StartArgs) ->
     test_node_starter:maybe_start_cover(),
-    clock:try_to_restore_previous_synchronization(),
     cluster_manager_sup:start_link().
 
 %%--------------------------------------------------------------------
