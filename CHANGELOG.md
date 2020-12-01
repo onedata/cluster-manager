@@ -4,6 +4,14 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 20.02.4
+
+-   **VFS-6841** Introduce unified time management in all Onedata
+    components - all clusters now regularly synchronize their clocks
+    with the Onezone service, the process is managed by Onepanel's
+    master node.
+
+
 ### 20.02.3
 
 ### 20.02.2
