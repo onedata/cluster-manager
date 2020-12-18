@@ -4,6 +4,12 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 20.02.5
+
+-   **VFS-6999** Improve error reporting in entrypoints of
+    oneprovider/onezone dockers, always dump application logs to stdout
+    in case of failures during batch deployment.
+
 ### 20.02.4
 
 -   **VFS-6841** Introduce unified time management in all Onedata
