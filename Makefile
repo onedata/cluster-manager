@@ -126,3 +126,10 @@ package: check_distribution package/$(PKG_ID).tar.gz
 
 pkgclean:
 	rm -rf package
+
+##
+## Codetag tracker
+##
+
+codetag_tracker:
+	./bamboos/scripts/codetag_tracker.sh
