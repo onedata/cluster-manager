@@ -4,6 +4,8 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 20.02.9
+
 ### 20.02.8
 
 ### 20.02.7
