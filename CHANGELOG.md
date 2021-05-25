@@ -1,8 +1,8 @@
-Release notes for project cluster-manager
-=========================================
+# Release notes for project cluster-manager
 
-CHANGELOG
----------
+## CHANGELOG
+
+### 21.02.0-alpha10
 
 ### 21.02.0-alpha9
 
