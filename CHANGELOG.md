@@ -4,6 +4,35 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 21.02.0-alpha13
+
+### 21.02.0-alpha12
+
+### 21.02.0-alpha11
+
+### 21.02.0-alpha10
+
+### 21.02.0-alpha9
+
+### 21.02.0-alpha8
+
+-   **VFS-7510** Add API for browsing dataset structures, separately for
+    datasets in attached and detached state. The datasets can be listed
+    using batches of requested size, with desired starting point and
+    offset.
+
+### 21.02.0-alpha7
+
+### 21.02.0-alpha6
+
+### 21.02.0-alpha5
+
+### 21.02.0-alpha4
+
+### 21.02.0-alpha3
+
+### 21.02.0-alpha2
+
 ### 20.02.10
 
 ### 20.02.9
