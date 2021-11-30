@@ -4,6 +4,11 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 21.02.0-alpha23
+
+-   **VFS-8073** Upgrade folly, wangle and proxygen libraries to version
+    2021.01.04.00.
+
 ### 21.02.0-alpha22
 
 ### 21.02.0-alpha21
