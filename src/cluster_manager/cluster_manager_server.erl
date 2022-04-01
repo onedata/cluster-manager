@@ -311,9 +311,9 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
                 gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, ?INIT_STEP_MSG(?INIT_CONNECTION)),
                 State#state{in_progress_nodes = NewInProgressNodes}
             catch
-                _:Error ->
+                _:Error:Stacktrace ->
                     ?warning_stacktrace("Checking node ~p, in cm failed with error: ~p",
-                        [SenderNode, Error]),
+                        [SenderNode, Error], Stacktrace),
                     State
             end
     end.

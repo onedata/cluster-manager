@@ -86,8 +86,8 @@ get_cluster_status(AllNodes, NodeManager) ->
             WorkerStatuses, ListenerStatuses),
         {ok, ClusterStatus}
     catch
-        Type:Error ->
-            ?error_stacktrace("Unexpected error during healthcheck: ~p:~p", [Type, Error]),
+        Type:Error:Stacktrace ->
+            ?error_stacktrace("Unexpected error during healthcheck: ~p:~p", [Type, Error], Stacktrace),
             {error, Error}
     end.
 

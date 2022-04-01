@@ -4,6 +4,62 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 21.02.0-alpha24
+
+### 21.02.0-alpha23
+
+-   **VFS-8073** Upgrade folly, wangle and proxygen libraries to version
+    2021.01.04.00.
+
+### 21.02.0-alpha22
+
+### 21.02.0-alpha21
+
+### 21.02.0-alpha20
+
+### 21.02.0-alpha19
+
+### 21.02.0-alpha18
+
+### 21.02.0-alpha17
+
+### 21.02.0-alpha16
+
+### 21.02.0-alpha15
+
+-   **VFS-7747** Upgrade the codebase to Erlang OTP 24.
+
+### 21.02.0-alpha14
+
+### 21.02.0-alpha13
+
+### 21.02.0-alpha12
+
+### 21.02.0-alpha11
+
+### 21.02.0-alpha10
+
+### 21.02.0-alpha9
+
+### 21.02.0-alpha8
+
+-   **VFS-7510** Add API for browsing dataset structures, separately for
+    datasets in attached and detached state. The datasets can be listed
+    using batches of requested size, with desired starting point and
+    offset.
+
+### 21.02.0-alpha7
+
+### 21.02.0-alpha6
+
+### 21.02.0-alpha5
+
+### 21.02.0-alpha4
+
+### 21.02.0-alpha3
+
+### 21.02.0-alpha2
+
 ### 20.02.16
 
 ### 20.02.15
