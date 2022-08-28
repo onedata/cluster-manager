@@ -11,6 +11,8 @@
 *.pyc
 
 test/eunit_results
+test/dialyzer_results
+test/codetag_tracker_results
 
 doc
 logs
