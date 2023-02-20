@@ -49,7 +49,7 @@
 
 -type state() :: #state{}.
 -type cluster_init_step() :: ?INIT_CONNECTION | ?START_DEFAULT_WORKERS | ?PREPARE_FOR_UPGRADE
-| ?UPGRADE_CLUSTER | ?START_CUSTOM_WORKERS | ?DB_AND_WORKERS_READY | ?START_LISTENERS | ?CLUSTER_READY.
+| ?UPGRADE_CLUSTER | ?START_CUSTOM_WORKERS | ?START_LISTENERS | ?CLUSTER_READY.
 % stores information which nodes are yet to acknowledge a recovered node
 -type pending_recovery_acknowledgements() :: #{node() => [node()]}.
 
@@ -311,9 +311,11 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
                 gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, ?INIT_STEP_MSG(?INIT_CONNECTION)),
                 State#state{in_progress_nodes = NewInProgressNodes}
             catch
-                _:Error:Stacktrace ->
-                    ?warning_stacktrace("Checking node ~p, in cm failed with error: ~p",
-                        [SenderNode, Error], Stacktrace),
+                Class:Reason:Stacktrace ->
+                    ?warning_exception(
+                        "Checking node ~p in cm failed", [SenderNode],
+                        Class, Reason, Stacktrace
+                    ),
                     State
             end
     end.
@@ -619,8 +621,7 @@ get_next_step(?INIT_CONNECTION) -> ?START_DEFAULT_WORKERS;
 get_next_step(?START_DEFAULT_WORKERS) -> ?PREPARE_FOR_UPGRADE;
 get_next_step(?PREPARE_FOR_UPGRADE) -> ?UPGRADE_CLUSTER;
 get_next_step(?UPGRADE_CLUSTER) -> ?START_CUSTOM_WORKERS;
-get_next_step(?START_CUSTOM_WORKERS) -> ?DB_AND_WORKERS_READY;
-get_next_step(?DB_AND_WORKERS_READY) -> ?START_LISTENERS;
+get_next_step(?START_CUSTOM_WORKERS) -> ?START_LISTENERS;
 get_next_step(?START_LISTENERS) -> ?CLUSTER_READY.
 
 %%%===================================================================

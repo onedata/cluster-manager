@@ -22,7 +22,6 @@
 -define(PREPARE_FOR_UPGRADE, prepare_for_upgrade).
 -define(UPGRADE_CLUSTER, upgrade_cluster).
 -define(START_CUSTOM_WORKERS, start_custom_workers).
--define(DB_AND_WORKERS_READY, db_and_workers_ready).
 -define(START_LISTENERS, start_listeners).
 -define(CLUSTER_READY, cluster_ready).
 
