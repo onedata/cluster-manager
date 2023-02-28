@@ -43,7 +43,7 @@ release: compile template
 	$(REBAR) release $(OVERLAY_VARS)
 
 upgrade:
-	$(REBAR) upgrade
+	$(REBAR) upgrade --all
 
 clean: relclean pkgclean
 	$(REBAR) clean
