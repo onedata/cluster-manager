@@ -68,6 +68,8 @@ CHANGELOG
 
 ### 21.02.0-alpha2
 
+### 20.02.20
+
 ### 20.02.19
 
 -   **VFS-9730** Improve handling of api caveats related to API
