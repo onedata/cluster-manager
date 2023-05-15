@@ -387,7 +387,7 @@ proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = C
 %%--------------------------------------------------------------------
 -spec handle_error(state(), node()) -> state().
 handle_error(#state{current_step = Step} = State, Node) ->
-    force_stop_cluster(State, "Cluster init failure - error in step '~w' on node ~w", [Step, Node]).
+    tear_down_cluster(State, "Cluster init failure - error in step '~w' on node ~w", [Step, Node]).
 
 
 %%--------------------------------------------------------------------
@@ -400,7 +400,7 @@ handle_error(#state{current_step = Step} = State, Node) ->
 %%--------------------------------------------------------------------
 -spec check_step_finished(cluster_init_step(), state(), Timeout :: non_neg_integer()) -> state().
 check_step_finished(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
-    force_stop_cluster(State, "Cluster init failure - timeout in step '~w' on nodes: ~w", [Step, Nodes]);
+    tear_down_cluster(State, "Cluster init failure - timeout in step '~w' on nodes: ~w", [Step, Nodes]);
 check_step_finished(?CLUSTER_READY, State, Timeout) ->
     case cluster_status:get_cluster_status(get_all_nodes(State), cluster_manager_connection) of
         {ok, {ok, _NodeStatuses}} ->
@@ -412,7 +412,7 @@ check_step_finished(?CLUSTER_READY, State, Timeout) ->
             erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ?CLUSTER_READY, Timeout - 1}}),
             State;
         Error ->
-            force_stop_cluster(State, "Internal healthcheck failed: ~p", [Error])
+            tear_down_cluster(State, "Internal healthcheck failed: ~p", [Error])
     end;
 
 check_step_finished(Step, #state{current_step = Step} = State, Timeout) ->
@@ -524,7 +524,7 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 node_down(Node, State) ->
     case consistent_hashing:get_nodes_assigned_per_label() of
         1 ->
-            force_stop_cluster(State, "Node down: ~p. Stopping cluster", [Node]);
+            tear_down_cluster(State, "Last cluster node down: ~p", [Node]);
         _ ->
             ?error("Node down: ~p", [Node]),
             ok = consistent_hashing:report_node_failure(Node),
@@ -600,15 +600,15 @@ send_to_nodes(Nodes, Msg) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Force stops all nodes in the cluster with given readable reason.
+%% Sends stop signal to all nodes in the cluster with given readable reason.
 %% The cluster manager is not stopped and its state is reset.
 %% @end
 %%--------------------------------------------------------------------
--spec force_stop_cluster(state(), string(), list()) -> state().
-force_stop_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
+-spec tear_down_cluster(state(), string(), list()) -> state().
+tear_down_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
     ReasonMsg = str_utils:format(ReasonFormatString, ReasonFormatArgs),
     ?critical(ReasonMsg),
-    ?critical("Force stopping cluster..."),
+    ?critical("Tearing down the cluster, sending a stop signal to all nodes..."),
     send_to_nodes(get_all_nodes(State), ?FORCE_STOP(ReasonMsg)),
     consistent_hashing:cleanup(),
     #state{nodes_ready_in_step = [], in_progress_nodes = []}.
