@@ -6,6 +6,10 @@ CHANGELOG
 
 ### 21.02.2
 
+-   **VFS-10612** Add a journal that records the starts and shutdowns of
+    services and procedures that help to ensure the graceful stopping of
+    services.
+
 ### 21.02.1
 
 -   **VFS-9622** Upgraded the base image for release dockers from Ubuntu
