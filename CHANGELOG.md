@@ -4,6 +4,8 @@ Release notes for project cluster-manager
 CHANGELOG
 ---------
 
+### 21.02.3
+
 ### 21.02.2
 
 -   **VFS-10612** Add a journal that records the starts and shutdowns of
