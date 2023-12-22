@@ -20,8 +20,8 @@
 -define(INIT_CONNECTION, init_connection).
 -define(START_DEFAULT_WORKERS, start_default_workers).
 -define(PREPARE_FOR_UPGRADE, prepare_for_upgrade).
--define(UPGRADE_CLUSTER, upgrade_cluster).
 -define(START_CUSTOM_WORKERS, start_custom_workers).
+-define(UPGRADE_CLUSTER, upgrade_cluster).
 -define(START_LISTENERS, start_listeners).
 -define(CLUSTER_READY, cluster_ready).
 
