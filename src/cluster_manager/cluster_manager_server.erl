@@ -617,9 +617,10 @@ tear_down_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
 %% @private
 -spec get_next_step(cluster_init_step()) -> cluster_init_step().
 get_next_step(?INIT_CONNECTION) -> ?START_DEFAULT_WORKERS;
-get_next_step(?START_DEFAULT_WORKERS) -> ?PREPARE_FOR_UPGRADE;
-get_next_step(?PREPARE_FOR_UPGRADE) -> ?START_CUSTOM_WORKERS;
-get_next_step(?START_CUSTOM_WORKERS) -> ?UPGRADE_CLUSTER;
+get_next_step(?START_DEFAULT_WORKERS) -> ?PREPARE_FOR_CUSTOM_WORKERS;
+get_next_step(?PREPARE_FOR_CUSTOM_WORKERS) -> ?START_CUSTOM_WORKERS;
+get_next_step(?START_CUSTOM_WORKERS) -> ?PREPARE_FOR_UPGRADE;
+get_next_step(?PREPARE_FOR_UPGRADE) -> ?UPGRADE_CLUSTER;
 get_next_step(?UPGRADE_CLUSTER) -> ?START_LISTENERS;
 get_next_step(?START_LISTENERS) -> ?CLUSTER_READY.
 
