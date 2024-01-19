@@ -48,8 +48,8 @@
 
 
 -type state() :: #state{}.
--type cluster_init_step() :: ?INIT_CONNECTION | ?START_DEFAULT_WORKERS | ?PREPARE_FOR_UPGRADE
-| ?UPGRADE_CLUSTER | ?START_CUSTOM_WORKERS | ?START_LISTENERS | ?CLUSTER_READY.
+-type cluster_init_step() :: ?INIT_CONNECTION | ?START_DEFAULT_WORKERS | ?PREPARE_FOR_CUSTOM_WORKERS
+| ?START_CUSTOM_WORKERS | ?PREPARE_FOR_UPGRADE | ?UPGRADE_CLUSTER | ?START_LISTENERS | ?CLUSTER_READY.
 % stores information which nodes are yet to acknowledge a recovered node
 -type pending_recovery_acknowledgements() :: #{node() => [node()]}.
 
