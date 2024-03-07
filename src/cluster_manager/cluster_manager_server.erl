@@ -193,7 +193,7 @@ handle_cast({cluster_init_step_report, Node, Step, failure}, #state{current_step
     {noreply, NewState};
 
 handle_cast({cluster_init_step_report, Node, Step, Result}, State) ->
-    ?error("Unexpected cluster_init_step_report (~w ~w ~w) while in state ~p", [
+    ?error("Unexpected cluster_init_step_report (~w ~w ~w) while in state ~tp", [
         Node, Step, Result, State
     ]),
     {noreply, State};
@@ -298,14 +298,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 -spec cm_conn_req(State :: state(), SenderNode :: node()) -> NewState :: state().
 cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
-    ?info("Connection request from node: ~p", [SenderNode]),
+    ?info("Connection request from node: ~tp", [SenderNode]),
     erlang:monitor_node(SenderNode, true),
     case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
             init_node_recovery(SenderNode),
             State;
         false ->
-            ?info("New node: ~p", [SenderNode]),
+            ?info("New node: ~tp", [SenderNode]),
             try
                 NewInProgressNodes = add_node_to_list(SenderNode, InProgressNodes),
                 gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, ?INIT_STEP_MSG(?INIT_CONNECTION)),
@@ -313,7 +313,7 @@ cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
             catch
                 Class:Reason:Stacktrace ->
                     ?warning_exception(
-                        "Checking node ~p in cm failed", [SenderNode],
+                        "Checking node ~tp in cm failed", [SenderNode],
                         Class, Reason, Stacktrace
                     ),
                     State
@@ -341,7 +341,7 @@ mark_cluster_init_step_finished_for_node(Node, State) ->
     },
     case is_cluster_ready_in_step(NewState) of
         true ->
-            ?info("Cluster init step '~s' complete", [Step]),
+            ?info("Cluster init step '~ts' complete", [Step]),
             gen_server:cast(self(), next_step),
             NewState;
         false ->
@@ -367,7 +367,7 @@ proceed_to_next_step(State) ->
 -spec proceed_to_next_step_common(state()) -> state().
 proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = CurrentStep} = State) ->
     NextStep = get_next_step(CurrentStep),
-    ?info("Starting new step: ~p", [NextStep]),
+    ?info("Starting new step: ~tp", [NextStep]),
 
     gen_server:cast(self(), {check_step_finished, NextStep, ?STEP_TIMEOUT(NextStep) div 1000}),
     case NextStep of
@@ -408,11 +408,11 @@ check_step_finished(?CLUSTER_READY, State, Timeout) ->
             send_to_nodes(get_all_nodes(State), ?INIT_STEP_MSG(?CLUSTER_READY)),
             State;
         {ok, {GenericError, NodeStatuses}}  ->
-            ?debug("Internal healthcheck failed: ~p", [{GenericError, NodeStatuses}]),
+            ?debug("Internal healthcheck failed: ~tp", [{GenericError, NodeStatuses}]),
             erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ?CLUSTER_READY, Timeout - 1}}),
             State;
         Error ->
-            tear_down_cluster(State, "Internal healthcheck failed: ~p", [Error])
+            tear_down_cluster(State, "Internal healthcheck failed: ~tp", [Error])
     end;
 
 check_step_finished(Step, #state{current_step = Step} = State, Timeout) ->
@@ -450,7 +450,7 @@ create_hash_ring(Nodes) ->
 -spec heartbeat(State :: state(), NodeState :: #node_state{}) -> state().
 heartbeat(#state{node_states = NodeStates, last_heartbeat = LastHeartbeat} = State, NodeState) ->
     #node_state{node = Node} = NodeState,
-    ?debug("Heartbeat from node ~p", [Node]),
+    ?debug("Heartbeat from node ~tp", [Node]),
     NewNodeStates = [{Node, NodeState} | proplists:delete(Node, NodeStates)],
     NewLastHeartbeat = [{Node, global_clock:timestamp_millis()} | proplists:delete(Node, LastHeartbeat)],
     State#state{node_states = NewNodeStates, last_heartbeat = NewLastHeartbeat}.
@@ -524,9 +524,9 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 node_down(Node, State) ->
     case consistent_hashing:get_nodes_assigned_per_label() of
         1 ->
-            tear_down_cluster(State, "Last cluster node down: ~p", [Node]);
+            tear_down_cluster(State, "Last cluster node down: ~tp", [Node]);
         _ ->
-            ?error("Node down: ~p", [Node]),
+            ?error("Node down: ~tp", [Node]),
             ok = consistent_hashing:report_node_failure(Node),
             send_to_nodes(get_all_nodes(State) -- [Node], ?NODE_DOWN(Node)),
             State
@@ -633,7 +633,7 @@ init_node_recovery(Node) ->
     ok = consistent_hashing:report_node_recovery(Node),
     ok = consistent_hashing:replicate_ring_to_nodes([Node]),
     gen_server:cast({?NODE_MANAGER_NAME, Node}, ?INITIALIZE_RECOVERY),
-    ?info("Recovery initialized on node: ~p", [Node]),
+    ?info("Recovery initialized on node: ~tp", [Node]),
     ok.
 
 -spec handle_node_recovery_initialized(node(), state()) -> state().
