@@ -87,7 +87,7 @@ get_cluster_status(AllNodes, NodeManager) ->
         {ok, ClusterStatus}
     catch
         Type:Error:Stacktrace ->
-            ?error_stacktrace("Unexpected error during healthcheck: ~p:~p", [Type, Error], Stacktrace),
+            ?error_stacktrace("Unexpected error during healthcheck: ~tp:~tp", [Type, Error], Stacktrace),
             {error, Error}
     end.
 
@@ -105,14 +105,14 @@ check_status(AliveNodes, FailedNodes, Component) ->
         {Node, try
             Ans = gen_server:call({?NODE_MANAGER_NAME, Node}, {healthcheck, Component},
                 ?CLUSTER_COMPONENT_HEALTHCHECK_TIMEOUT),
-            ?debug("Healthcheck: ~p ~p, ans: ~p", [Component, Node, Ans]),
+            ?debug("Healthcheck: ~tp ~tp, ans: ~tp", [Component, Node, Ans]),
             Ans
         catch
             _:{{nodedown, _}, _} ->
-                ?debug("Connection error to ~p at ~p: nodedown", [?NODE_MANAGER_NAME, Node]),
+                ?debug("Connection error to ~tp at ~tp: nodedown", [?NODE_MANAGER_NAME, Node]),
                 [{Component, {error, nodedown}}];
             T:M ->
-                ?debug("Connection error to ~p at ~p: ~p:~p", [?NODE_MANAGER_NAME, Node, T, M]),
+                ?debug("Connection error to ~tp at ~tp: ~tp:~tp", [?NODE_MANAGER_NAME, Node, T, M]),
                 [{Component, {error, timeout}}]
         end}
     end, AliveNodes),
@@ -167,7 +167,7 @@ calculate_cluster_status(Nodes, NodeManagerStatuses, DispatcherStatuses, WorkerS
         get_worse_status(Acc, CurrentStatus)
     end, ok, NodeStatuses),
     % Sort node statuses by node name
-    ?debug("Cluster status: ~p", [AppStatus]),
+    ?debug("Cluster status: ~tp", [AppStatus]),
     {AppStatus, lists:usort(NodeStatuses)}.
 
 
