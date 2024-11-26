@@ -25,6 +25,9 @@ GIT_URL := $(shell if [ "${GIT_URL}" = "file:/" ]; then echo 'ssh://git@git.oned
 ONEDATA_GIT_URL := $(shell if [ "${ONEDATA_GIT_URL}" = "" ]; then echo ${GIT_URL}; else echo ${ONEDATA_GIT_URL}; fi)
 export ONEDATA_GIT_URL
 
+PKG_CONFIG	= pkg.vars.config
+ESL_ERLANG_VERSION ?= none
+
 .PHONY: upgrade test package
 
 all: rel
@@ -105,6 +108,18 @@ ifeq ($(DISTRIBUTION), none)
 	@exit 1
 else
 	@echo "Building package for distribution $(DISTRIBUTION)"
+endif
+
+check_erlang:
+ifeq ($(ESL_ERLANG_VERSION), none)
+	@echo "WARNING: ESL_ERLANG_VERSION is not set and will not be checked against the version in $(PKG_CONFIG)"
+	@echo "         Be sure to have the desired version in $(PKG_CONFIG)"
+else 
+	@if ! grep -E 'esl-erlang.*$(ESL_ERLANG_VERSION)' $(PKG_CONFIG); then \
+	    echo "ERROR: The specified esl-erlang version ($(ESL_ERLANG_VERSION)) was not found in $(PKG_CONFIG)"; \
+	    echo "       Please, correct the esl-erlang version in $(PKG_CONFIG)"; \
+	    exit 1; \
+	fi
 endif
 
 package/$(PKG_ID).tar.gz:
