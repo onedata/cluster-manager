@@ -7,6 +7,7 @@ DISTRIBUTION    ?= none
 export DISTRIBUTION
 
 RELEASE         ?= 2202
+ESL_ERLANG_VERSION ?= none
 PKG_REVISION    ?= $(shell git describe --tags --always)
 PKG_VERSION     ?= $(shell git describe --tags --always | tr - .)
 PKG_ID           = cluster-manager-$(PKG_VERSION)
@@ -24,9 +25,6 @@ GIT_URL := $(shell git config --get remote.origin.url | sed -e 's/\(\/[^/]*\)$$/
 GIT_URL := $(shell if [ "${GIT_URL}" = "file:/" ]; then echo 'ssh://git@git.onedata.org:7999/vfs'; else echo ${GIT_URL}; fi)
 ONEDATA_GIT_URL := $(shell if [ "${ONEDATA_GIT_URL}" = "" ]; then echo ${GIT_URL}; else echo ${ONEDATA_GIT_URL}; fi)
 export ONEDATA_GIT_URL
-
-PKG_CONFIG	= pkg.vars.config
-ESL_ERLANG_VERSION ?= none
 
 .PHONY: upgrade test package check_erlang check_distribution
 
@@ -112,12 +110,15 @@ endif
 
 check_erlang:
 ifeq ($(ESL_ERLANG_VERSION), none)
-	@echo "WARNING: ESL_ERLANG_VERSION is not set and will not be checked against the version in $(PKG_CONFIG)"
-	@echo "         Be sure to have the desired version in $(PKG_CONFIG)"
-else 
-	@if ! grep -E 'esl-erlang.*$(ESL_ERLANG_VERSION)' $(PKG_CONFIG); then \
-	    echo "ERROR: The specified esl-erlang version ($(ESL_ERLANG_VERSION)) was not found in $(PKG_CONFIG)"; \
-	    echo "       Please, correct the esl-erlang version in $(PKG_CONFIG)"; \
+	@echo "ERROR: ESL_ERLANG_VERSION is not set."
+	@exit 1
+else
+	@G1=`grep -E 'esl-erlang' $(PKG_VARS_CONFIG)`; \
+	G2=`grep -E 'esl-erlang.*$(ESL_ERLANG_VERSION)' $(PKG_VARS_CONFIG)`; \
+	if [ "$$G1" != "$$G2" ]; then \
+	    echo "ERROR: Some of the esl-erlang versions in $(PKG_VARS_CONFIG) do not correspond"; \
+            echo "       to the ESL_ERLANG_VERSION ($(ESL_ERLANG_VERSION)) passed to the make command."; \
+	    echo "       Please, correct the esl-erlang versions for deb and rpm in $(PKG_VARS_CONFIG)"; \
 	    exit 1; \
 	fi
 endif
