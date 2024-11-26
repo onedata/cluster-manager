@@ -28,7 +28,7 @@ export ONEDATA_GIT_URL
 PKG_CONFIG	= pkg.vars.config
 ESL_ERLANG_VERSION ?= none
 
-.PHONY: upgrade test package
+.PHONY: upgrade test package check_erlang check_distribution
 
 all: rel
 
@@ -140,7 +140,7 @@ package/$(PKG_ID).tar.gz:
 dist: package/$(PKG_ID).tar.gz
 	cp package/$(PKG_ID).tar.gz .
 
-package: check_distribution package/$(PKG_ID).tar.gz
+package: check_distribution check_erlang package/$(PKG_ID).tar.gz
 	${MAKE} -C package -f $(PKG_ID)/node_package/Makefile
 
 pkgclean:
