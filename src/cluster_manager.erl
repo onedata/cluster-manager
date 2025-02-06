@@ -39,6 +39,7 @@
     {ok, pid(), State :: term()} |
     {error, Reason :: term()}).
 start(_StartType, _StartArgs) ->
+    onedata_logger:configure_logger(),
     test_node_starter:maybe_start_cover(),
     cluster_manager_sup:start_link().
 
