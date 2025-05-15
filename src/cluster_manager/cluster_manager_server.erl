@@ -47,11 +47,20 @@
 }).
 
 
+%% @formatter:off
 -type state() :: #state{}.
--type cluster_init_step() :: ?INIT_CONNECTION | ?START_DEFAULT_WORKERS | ?PREPARE_FOR_CUSTOM_WORKERS
-| ?START_CUSTOM_WORKERS | ?PREPARE_FOR_UPGRADE | ?UPGRADE_CLUSTER | ?START_LISTENERS | ?CLUSTER_READY.
+-type cluster_init_step() :: ?INIT_CONNECTION
+                           | ?START_DEFAULT_WORKERS
+                           | ?PREPARE_FOR_CUSTOM_WORKERS
+                           | ?START_CUSTOM_WORKERS
+                           | ?PREPARE_FOR_UPGRADE
+                           | ?UPGRADE_CLUSTER
+                           | ?PREPARE_FOR_LISTENERS_START
+                           | ?START_LISTENERS
+                           | ?CLUSTER_READY.
 % stores information which nodes are yet to acknowledge a recovered node
 -type pending_recovery_acknowledgements() :: #{node() => [node()]}.
+%% @formatter:on
 
 -export_type([cluster_init_step/0]).
 
@@ -367,7 +376,7 @@ proceed_to_next_step(State) ->
 -spec proceed_to_next_step_common(state()) -> state().
 proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = CurrentStep} = State) ->
     NextStep = get_next_step(CurrentStep),
-    ?info("Starting new step: ~tp", [NextStep]),
+    ?info("Starting new step: '~tp'", [NextStep]),
 
     gen_server:cast(self(), {check_step_finished, NextStep, ?STEP_TIMEOUT(NextStep) div 1000}),
     case NextStep of
@@ -621,7 +630,8 @@ get_next_step(?START_DEFAULT_WORKERS) -> ?PREPARE_FOR_CUSTOM_WORKERS;
 get_next_step(?PREPARE_FOR_CUSTOM_WORKERS) -> ?START_CUSTOM_WORKERS;
 get_next_step(?START_CUSTOM_WORKERS) -> ?PREPARE_FOR_UPGRADE;
 get_next_step(?PREPARE_FOR_UPGRADE) -> ?UPGRADE_CLUSTER;
-get_next_step(?UPGRADE_CLUSTER) -> ?START_LISTENERS;
+get_next_step(?UPGRADE_CLUSTER) -> ?PREPARE_FOR_LISTENERS_START;
+get_next_step(?PREPARE_FOR_LISTENERS_START) -> ?START_LISTENERS;
 get_next_step(?START_LISTENERS) -> ?CLUSTER_READY.
 
 %%%===================================================================
