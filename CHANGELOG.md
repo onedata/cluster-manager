@@ -6,6 +6,20 @@ CHANGELOG
 
 ### 21.02.9
 
+-   **VFS-12935** Disabled SSL/TLS ciphers that have been recently
+    deemed unsafe. Added a config option to the ctool library to add
+    extra ciphers or blacklist selected ones for more flexibility.
+-   **VFS-12703** Implemented backpressure mechanisms on the GraphSync
+    channel between Oneprovider and Onezone. Up to this point, in
+    certain pathological situations, the Oneprovider could flood Onezone
+    with requests and effectively DoS the server. Added configurable
+    parallelism of request processing based on a process pool and fair
+    balancing of processing capacity between clients.
+-   **VFS-12581** Added rich context information to errors across the
+    whole system (expressed in JSON) to improve error reporting and
+    diagnostics.
+
+
 ### 21.02.8
 
 ### 21.02.7
