@@ -6,6 +6,9 @@ CHANGELOG
 
 ### 25.0
 
+-   **VFS-13222** Switched to the Calendar Versioning model. Version
+    25.0 is equivalent to 21.02.9 in the previous model, and it's
+    cross-compatible with the 21.02 line.
 -   **VFS-12935** Disabled SSL/TLS ciphers that have been recently
     deemed unsafe. Added a config option to the ctool library to add
     extra ciphers or blacklist selected ones for more flexibility.
