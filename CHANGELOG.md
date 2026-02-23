@@ -1,6 +1,26 @@
-# Release notes for project cluster-manager
+Release notes for project cluster-manager
+=========================================
 
-## CHANGELOG
+CHANGELOG
+---------
+
+### 25.0
+
+-   **VFS-13222** Switched to the Calendar Versioning model. Version
+    25.0 is equivalent to 21.02.9 in the previous model, and it's
+    cross-compatible with the 21.02 line.
+-   **VFS-12935** Disabled SSL/TLS ciphers that have been recently
+    deemed unsafe. Added a config option to the ctool library to add
+    extra ciphers or blacklist selected ones for more flexibility.
+-   **VFS-12703** Implemented backpressure mechanisms on the GraphSync
+    channel between Oneprovider and Onezone. Up to this point, in
+    certain pathological situations, the Oneprovider could flood Onezone
+    with requests and effectively DoS the server. Added configurable
+    parallelism of request processing based on a process pool and fair
+    balancing of processing capacity between clients.
+-   **VFS-12581** Added rich context information to errors across the
+    whole system (expressed in JSON) to improve error reporting and
+    diagnostics.
 
 ### 21.02.8
 
