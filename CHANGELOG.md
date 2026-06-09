@@ -1,8 +1,12 @@
-Release notes for project cluster-manager
-=========================================
+# Release notes for project cluster-manager
 
-CHANGELOG
----------
+## CHANGELOG
+
+### 25.1
+
+-   **VFS-13307** Implemented an improved process pool for handling
+    GraphSync requests. Now, a single client can't flood the Onezone
+    server with requests, as it can occupy only some of the pool.
 
 ### 25.0
 
