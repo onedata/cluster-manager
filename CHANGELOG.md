@@ -2,6 +2,8 @@
 
 ## CHANGELOG
 
+### 25.2
+
 ### 25.1
 
 -   **VFS-13307** Implemented an improved process pool for handling
