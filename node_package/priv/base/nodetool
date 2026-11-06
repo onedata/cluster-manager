@@ -43,38 +43,38 @@ main(Args) ->
         {true, pong} ->
             ok;
         {false, pong} ->
-            io:format(standard_error, "failed to connect to node ~p .\n", [TargetNode]),
+            io:format(standard_error, "failed to connect to node ~tp .\n", [TargetNode]),
             halt(1);
         {_, pang} ->
-            io:format(standard_error, "Node ~p not responding to pings.\n", [TargetNode]),
+            io:format(standard_error, "Node ~tp not responding to pings.\n", [TargetNode]),
             halt(1)
     end,
 
     case RestArgs of
         ["getpid"] ->
-            io:format("~p\n", [list_to_integer(rpc:call(TargetNode, os, getpid, []))]);
+            io:format("~tp\n", [list_to_integer(rpc:call(TargetNode, os, getpid, []))]);
         ["ping"] ->
             %% If we got this far, the node already responsed to a ping, so just dump
             %% a "pong"
             io:format("pong\n");
         ["stop"] ->
-            io:format("~p\n", [rpc:call(TargetNode, init, stop, [], RpcTimeout)]);
+            io:format("~tp\n", [rpc:call(TargetNode, init, stop, [], RpcTimeout)]);
         ["restart"] ->
-            io:format("~p\n", [rpc:call(TargetNode, init, restart, [], RpcTimeout)]);
+            io:format("~tp\n", [rpc:call(TargetNode, init, restart, [], RpcTimeout)]);
         ["reboot"] ->
-            io:format("~p\n", [rpc:call(TargetNode, init, reboot, [], RpcTimeout)]);
+            io:format("~tp\n", [rpc:call(TargetNode, init, reboot, [], RpcTimeout)]);
         ["rpc", Module, Function | RpcArgs] ->
             case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function),
                           [RpcArgs], RpcTimeout) of
                 ok ->
                     ok;
                 {badrpc, Reason} ->
-                    io:format(standard_error, "RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    io:format(standard_error, "RPC to ~tp failed: ~tp\n", [TargetNode, Reason]),
                     halt(1);
                 {error, Code} when is_integer(Code) ->
                     halt(Code);
                 {error, Code, Reason} when is_integer(Code) ->
-                    io:format(standard_error, "ERROR: ~p\n", [Reason]),
+                    io:format(standard_error, "ERROR: ~tp\n", [Reason]),
                     halt(Code);
                 _ ->
                     halt(1)
@@ -84,12 +84,12 @@ main(Args) ->
                 ok ->
                     ok;
                 {badrpc, Reason} ->
-                    io:format(standard_error, "RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    io:format(standard_error, "RPC to ~tp failed: ~tp\n", [TargetNode, Reason]),
                     halt(1);
                 {error, Code} when is_integer(Code) ->
                     halt(Code);
                 {error, Code, Reason} when is_integer(Code) ->
-                    io:format(standard_error, "ERROR: ~p\n", [Reason]),
+                    io:format(standard_error, "ERROR: ~tp\n", [Reason]),
                     halt(Code);
                 _ ->
                     halt(1)
@@ -98,18 +98,18 @@ main(Args) ->
             case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function),
                           consult(ArgsAsString), RpcTimeout) of
                 {badrpc, Reason} ->
-                    io:format(standard_error, "RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    io:format(standard_error, "RPC to ~tp failed: ~tp\n", [TargetNode, Reason]),
                     halt(1);
                 {error, Code} when is_integer(Code) ->
                     halt(Code);
                 {error, Code, Reason} when is_integer(Code) ->
-                    io:format(standard_error, "ERROR: ~p\n", [Reason]),
+                    io:format(standard_error, "ERROR: ~tp\n", [Reason]),
                     halt(Code);
                 Other ->
-                    io:format("~p\n", [Other])
+                    io:format("~tp\n", [Other])
             end;
         Other ->
-            io:format("Other: ~p\n", [Other]),
+            io:format("Other: ~tp\n", [Other]),
             io:format("Usage: nodetool {ping|stop|restart|reboot|chkconfig}\n")
     end,
     net_kernel:stop().

@@ -1,256 +1,391 @@
 # Release notes for project cluster-manager
 
+## CHANGELOG
 
-CHANGELOG
----------
+### 25.2
+
+### 25.1
+
+-   **VFS-13307** Implemented an improved process pool for handling
+    GraphSync requests. Now, a single client can't flood the Onezone
+    server with requests, as it can occupy only some of the pool.
+
+### 25.0
+
+-   **VFS-13222** Switched to the Calendar Versioning model. Version
+    25.0 is equivalent to 21.02.9 in the previous model, and it's
+    cross-compatible with the 21.02 line.
+-   **VFS-12935** Disabled SSL/TLS ciphers that have been recently
+    deemed unsafe. Added a config option to the ctool library to add
+    extra ciphers or blacklist selected ones for more flexibility.
+-   **VFS-12703** Implemented backpressure mechanisms on the GraphSync
+    channel between Oneprovider and Onezone. Up to this point, in
+    certain pathological situations, the Oneprovider could flood Onezone
+    with requests and effectively DoS the server. Added configurable
+    parallelism of request processing based on a process pool and fair
+    balancing of processing capacity between clients.
+-   **VFS-12581** Added rich context information to errors across the
+    whole system (expressed in JSON) to improve error reporting and
+    diagnostics.
+
+### 21.02.8
+
+### 21.02.7
+
+### 21.02.6
+
+### 21.02.5
+
+### 21.02.4
+
+### 21.02.3
+
+### 21.02.2
+
+-   **VFS-10612** Add a journal that records the starts and shutdowns of
+    services and procedures that help to ensure the graceful stopping of
+    services.
+
+### 21.02.1
+
+-   **VFS-9622** Upgraded the base image for release dockers from Ubuntu
+    18.04 to Ubuntu 20.04.
+-   **VFS-8073** Upgrade folly, wangle and proxygen libraries to version
+    2021.01.04.00.
+-   **VFS-7747** Upgrade the codebase to Erlang OTP 24.
+-   **VFS-7510** Add API for browsing dataset structures, separately for
+    datasets in attached and detached state. The datasets can be listed
+    using batches of requested size, with desired starting point and
+    offset.
+
+### 20.02.19
+
+-   **VFS-9730** Improve handling of api caveats related to API
+    operations concerning other components than Onezone - in some cases,
+    tokens with such caveats could be treated as invalid.
+
+### 20.02.18
+
+### 20.02.17
+
+### 20.02.16
+
+### 20.02.15
+
+### 20.02.14
+
+### 20.02.13
+
+### 20.02.12
+
+### 20.02.11
+
+### 20.02.10
+
+### 20.02.9
+
+### 20.02.8
+
+### 20.02.7
+
+### 20.02.6
+
+### 20.02.5
+
+-   **VFS-6999** Improve error reporting in entrypoints of
+    oneprovider/onezone dockers, always dump application logs to stdout
+    in case of failures during batch deployment.
+
+### 20.02.4
+
+-   **VFS-6841** Introduce unified time management in all Onedata
+    components - all clusters now regularly synchronize their clocks
+    with the Onezone service, the process is managed by Onepanel's
+    master node.
+
+
+### 20.02.3
+
+### 20.02.2
+
+### 20.02.1
+
+-   **VFS-6535** Updated S3 SDK library to 1.8.7.
+-   **VFS-6474** Added initial support for XRootD storage, including
+    direct access to XRootD storages and importing of legacy data sets
+    stored on XRootD or EOS servers.
+-   **VFS-6288** Basic HA functionality (experimental) - protect
+    Oneprovider from single node failure.
+-   **VFS-6261** Integrate high-level services with HA sub-system.
+-   **VFS-6184** Added the space owner concept. Space owner works like
+    \"root\" within the space - such user is allowed to perform all
+    file/API operations, regardless of the assigned privileges and file
+    permissions / ACLs. Ownership can be assigned to any number of
+    users, and it is forbidden to leave a space without an owner -
+    ownership must be transferred first.
+-   **VFS-6167** Allow nodes adding and deleting in-fly basing on HA
+    sub-system.
+
+### 20.02.0-beta4
+
+### 20.02.0-beta3
+
+-   VFS-5901 Application config can now be customized with arbitrary
+    number of config files added to /etc/cluster\_manager/config.d/
+    directory.
+
+-   VFS-5986 Update consistent\_hashing
+
+-   VFS-5986 Update consistent\_hashing usage
+
+-   VFS-6231 Added start\_upgrade\_essential\_workers step
+
+-   VFS-5983 Update ctool to support HA
+
+### 19.02.5
+
+### 19.02.4
+
+-   **VFS-6631** Rtransfer takes into account storage block size
+    choosing blocks to synchronize.
+-   **VFS-6607** Fix node restart with HA disabled.
+
+### 19.02.3
+
+-   Releasing new version 19.02.3
+
+### 19.02.2
+
+-   Releasing new version 19.02.2
+-   Release tags
+-   VFS-6254 Update ctool ref, increase timeouts of cluster init steps,
+    improve logging
+
+### 19.02.1
+
+-   Releasing new version 19.02.1
+
+### 19.02.0-rc2
+
+-   VFS-5773 Added cluster stopping after node down
+-   VFS-5699 Introduced steps in cluster initalization
+
+### 19.02.0-rc1
+
+-   VFS-5657 Enabled Ubuntu distribution package tag
+-   VFS-5629 Enable unknown dialyzer warnings
+
+### 18.02.3
+
+-   Releasing new version 18.02.3
+
+### 18.02.2
+
+-   Releasing new version 18.02.2
 
 ### 18.02.1
 
-* VFS-5159 Add boost lib to RPM dependencies
-* VFS-5159 Add missing folly lib to package deps and update ctool
-
+-   VFS-5159 Add boost lib to RPM dependencies
+-   VFS-5159 Add missing folly lib to package deps and update ctool
 
 ### 18.02.0-rc13
 
-* Releasing new version 18.02.0-rc13
-
+-   Releasing new version 18.02.0-rc13
 
 ### 18.02.0-rc12
 
-* Releasing new version 18.02.0-rc12
-
+-   Releasing new version 18.02.0-rc12
 
 ### 18.02.0-rc11
 
-* Releasing new version 18.02.0-rc11
-
+-   Releasing new version 18.02.0-rc11
 
 ### 18.02.0-rc10
 
-* Releasing new version 18.02.0-rc10
-
+-   Releasing new version 18.02.0-rc10
 
 ### 18.02.0-rc9
 
-* VFS-4532 Update node_package vars for all platforms
-* VFS-4532 Add autogenerated.config file to start params
-* VFS-4532 Properly verify expected workers number variable
-
+-   VFS-4532 Update node\_package vars for all platforms
+-   VFS-4532 Add autogenerated.config file to start params
+-   VFS-4532 Properly verify expected workers number variable
 
 ### 18.02.0-rc8
 
-* Releasing new version 18.02.0-rc8
-
+-   Releasing new version 18.02.0-rc8
 
 ### 18.02.0-rc7
 
-* Releasing new version 18.02.0-rc7
-
+-   Releasing new version 18.02.0-rc7
 
 ### 18.02.0-rc6
 
-* Releasing new version 18.02.0-rc6
-
+-   Releasing new version 18.02.0-rc6
 
 ### 18.02.0-rc5
 
-* Releasing new version 18.02.0-rc5
-
+-   Releasing new version 18.02.0-rc5
 
 ### 18.02.0-rc4
 
-* Releasing new version 18.02.0-rc4
-
+-   Releasing new version 18.02.0-rc4
 
 ### 18.02.0-rc3
 
-* VFS-3953 Update lager version and log formatter
-
+-   VFS-3953 Update lager version and log formatter
 
 ### 18.02.0-rc2
 
-* VFS-4446 Updated jiffy ref
-* VFS-4443 Fixed generation of source archive with submodules
-* VFS-4295 Changed subtrees to submodules
-
+-   VFS-4446 Updated jiffy ref
+-   VFS-4443 Fixed generation of source archive with submodules
+-   VFS-4295 Changed subtrees to submodules
 
 ### 18.02.0-rc1
 
-* VFS-2021 Added dockers.config
-
+-   VFS-2021 Added dockers.config
 
 ### 18.02.0-beta6
 
-* Releasing new version 18.02.0-beta6
-
+-   Releasing new version 18.02.0-beta6
 
 ### 18.02.0-beta5
 
-* Update web-client and ctool refs
-* VFS-4267 Adjust code to erl 20, update deps
-
+-   Update web-client and ctool refs
+-   VFS-4267 Adjust code to erl 20, update deps
 
 ### 18.02.0-beta4
 
-* Releasing new version 18.02.0-beta4
-
+-   Releasing new version 18.02.0-beta4
 
 ### 18.02.0-beta3
 
-* VFS-4130 Adjust to changed function in ctool time_utils
-* VFS-4054 Do not return IPs from get_nodes call
-
+-   VFS-4130 Adjust to changed function in ctool time\_utils
+-   VFS-4054 Do not return IPs from get\_nodes call
 
 ### 18.02.0-beta2
 
-* Releasing new version 18.02.0-beta2
-
+-   Releasing new version 18.02.0-beta2
 
 ### 18.02.0-beta1
 
-* Releasing new version 18.02.0-beta1
-
+-   Releasing new version 18.02.0-beta1
 
 ### 17.06.2
 
-* Releasing new version 17.06.2
-
+-   Releasing new version 17.06.2
 
 ### 17.06.1
 
-* Releasing new version 17.06.1
-
+-   Releasing new version 17.06.1
 
 ### 17.06.0-rc9
 
-* VFS-3972 Fix attach-direct consoles in releases not being run with xterm terminal
-* VFS-3803 Add cluster_manager call to get current system time
-
+-   VFS-3972 Fix attach-direct consoles in releases not being run with
+    xterm terminal
+-   VFS-3803 Add cluster\_manager call to get current system time
 
 ### 17.06.0-rc8
 
-* Releasing new version 17.06.0-rc8
-
+-   Releasing new version 17.06.0-rc8
 
 ### 17.06.0-rc7
 
-* Releasing new version 17.06.0-rc7
-
+-   Releasing new version 17.06.0-rc7
 
 ### 17.06.0-rc6
 
-* Releasing new version 17.06.0-rc6
-
+-   Releasing new version 17.06.0-rc6
 
 ### 17.06.0-rc5
 
-* Releasing new version 17.06.0-rc5
-
+-   Releasing new version 17.06.0-rc5
 
 ### 17.06.0-rc4
 
-* Releasing new version 17.06.0-rc4
-
+-   Releasing new version 17.06.0-rc4
 
 ### 17.06.0-rc3
 
-* Releasing new version 17.06.0-rc3
-
+-   Releasing new version 17.06.0-rc3
 
 ### 17.06.0-rc2
 
-* Releasing new version 17.06.0-rc2
-
+-   Releasing new version 17.06.0-rc2
 
 ### 17.06.0-rc1
 
-* Releasing new version 17.06.0-rc1
-
+-   Releasing new version 17.06.0-rc1
 
 ### 17.06.0-beta6
 
-* Releasing new version 17.06.0-beta6
-
+-   Releasing new version 17.06.0-beta6
 
 ### 17.06.0-beta4
 
-* VFS-3362 Update web-client
-
+-   VFS-3362 Update web-client
 
 ### 17.06.0-beta3
 
-* Releasing new version 17.06.0-beta3
-
+-   Releasing new version 17.06.0-beta3
 
 ### 17.06.0-beta2
 
-* Releasing new version 17.06.0-beta2
-
+-   Releasing new version 17.06.0-beta2
 
 ### 3.0.0-rc16
 
-* Releasing new version 3.0.0-rc16
-
+-   Releasing new version 3.0.0-rc16
 
 ### 3.0.0-rc15
 
-* Releasing new version 3.0.0-rc15
-
+-   Releasing new version 3.0.0-rc15
 
 ### 3.0.0-rc14
 
-* Releasing new version 3.0.0-rc14
-
+-   Releasing new version 3.0.0-rc14
 
 ### 3.0.0-rc13
 
-* Releasing new version 3.0.0-rc13
-
+-   Releasing new version 3.0.0-rc13
 
 ### 3.0.0-rc12
 
-* VFS-2991 Add hash_ring initialization on startup.
-* Releasing new version 3.0.0-rc12
-
+-   VFS-2991 Add hash\_ring initialization on startup.
+-   Releasing new version 3.0.0-rc12
 
 ### 3.0.0-rc9
 
-* Releasing new version 3.0.0-rc9
-
+-   Releasing new version 3.0.0-rc9
 
 ### 3.0.0-rc8
 
-* Releasing new version 3.0.0-rc8
-
+-   Releasing new version 3.0.0-rc8
 
 ### 3.0.0-rc7
 
-* Migrate to rebar3
-
+-   Migrate to rebar3
 
 ### 1.0.1
 
-* VFS-1528 Use monotonic time instead of system time
-* VFS-1603 Add distribution check to package rule in Makefile.
-* VFS-1528 Remove deprecated use of erlang:now/0
-
-
-### 1.0.0
-
-* Dependencies management update
-
+-   VFS-1528 Use monotonic time instead of system time
+-   VFS-1603 Add distribution check to package rule in Makefile.
+-   VFS-1528 Remove deprecated use of erlang:now/0
 
 ### 1.0.0
 
-* VFS-1145 Integrate SSL2 into oneprovider.
-* VFS-1129 Add deb build dependencies
-* VFS-1129 Update node_package
-* VFS-1115 Allow building RPM package.
-* VFS-1025, add kernel ports envs
-* VFS-1053 Selecting explicit node for mnesia to join, instead of finding it randomly
-* Moving code from worker application
+-   Dependencies management update
 
+### 1.0.0
 
-________
+-   VFS-1145 Integrate SSL2 into oneprovider.
+-   VFS-1129 Add deb build dependencies
+-   VFS-1129 Update node\_package
+-   VFS-1115 Allow building RPM package.
+-   VFS-1025, add kernel ports envs
+-   VFS-1053 Selecting explicit node for mnesia to join, instead of
+    finding it randomly
+-   Moving code from worker application
 
-Generated by sr-release. 
+------------------------------------------------------------------------
+
+Generated by sr-release.

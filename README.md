@@ -10,7 +10,7 @@ The role of *cluster-manager* is to:
 
 # Usage
 
-*cluster-manager* is a helper application for *cluster-workers*. Thus, it should not be used as a standalone application standalone but always as dependency of cluster-worker. For testing purposes, it may be started in 2 ways:
+*cluster-manager* is a helper application for *cluster-workers*. Thus, it should not be used as a standalone application but always as dependency of cluster-worker. For testing purposes, it may be started in 2 ways:
 
 Inside Erlang Virtual Machine using command “application:start(cluster_manager)”. It requires only compiled code at path of Erlang Virtual Machine.
 From shell using script “cluster_manager” with argument “console” or “start”. To generate start script, release of application must be created.

@@ -8,6 +8,9 @@
 %%%-------------------------------------------------------------------
 %%% @doc
 %%% This module coordinates central cluster.
+%%% Cluster initialization is divided into steps. For each step cluster
+%%% manager waits for all nodes to be ready before informing node managers
+%%% to move to the next one.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(cluster_manager_server).
@@ -16,6 +19,7 @@
 
 -behaviour(gen_server).
 
+-include("node_management_protocol.hrl").
 -include("global_definitions.hrl").
 -include_lib("ctool/include/logging.hrl").
 -include_lib("ctool/include/monitoring/monitoring.hrl").
@@ -32,13 +36,37 @@
 %% nodes, dispatchers and workers in cluster. It also contains reference
 %% to process used to monitor if nodes are alive.
 -record(state, {
-    nodes = [] :: [Node :: node()],
-    uninitialized_nodes = [] :: [Node :: node()],
+    current_step = init_connection :: cluster_init_step(),
+    nodes_ready_in_step = [] :: [Node :: node()],
+    in_progress_nodes = [] :: [Node :: node()],
     singleton_modules = [] :: [{Module :: atom(), Node :: node() | undefined}],
     node_states = [] :: [{Node :: node(), NodeState :: #node_state{}}],
     last_heartbeat = [] :: [{Node :: node(), Timestamp :: integer()}],
-    lb_state = undefined :: load_balancing:load_balancing_state() | undefined
+    lb_state = undefined :: load_balancing:load_balancing_state() | undefined,
+    pending_recovery_acknowledgements = #{} :: pending_recovery_acknowledgements()
 }).
+
+
+%% @formatter:off
+-type state() :: #state{}.
+-type cluster_init_step() :: ?INIT_CONNECTION
+                           | ?START_DEFAULT_WORKERS
+                           | ?PREPARE_FOR_CUSTOM_WORKERS
+                           | ?START_CUSTOM_WORKERS
+                           | ?PREPARE_FOR_UPGRADE
+                           | ?UPGRADE_CLUSTER
+                           | ?PREPARE_FOR_LISTENERS_START
+                           | ?START_LISTENERS
+                           | ?CLUSTER_READY.
+% stores information which nodes are yet to acknowledge a recovered node
+-type pending_recovery_acknowledgements() :: #{node() => [node()]}.
+%% @formatter:on
+
+-export_type([cluster_init_step/0]).
+
+-define(STEP_TIMEOUT(Step),
+    application:get_env(?APP_NAME, list_to_atom(atom_to_list(Step)++"_step_timeout"), timer:seconds(120))).
+-define(KEY_ASSOCIATED_NODES, application:get_env(?APP_NAME, key_associated_nodes, 1)).
 
 %%%===================================================================
 %%% API
@@ -71,7 +99,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 -spec stop() -> ok.
 stop() ->
-    gen_server:cast({global, ?CLUSTER_MANAGER}, stop).
+    gen_server:cast(self(), stop).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -89,9 +117,8 @@ stop() ->
     | {ok, State, hibernate}
     | {stop, Reason :: term()}
     | ignore,
-    State :: term(),
+    State :: state(),
     Timeout :: non_neg_integer() | infinity.
-%% ====================================================================
 init(_) ->
     process_flag(trap_exit, true),
     gen_server:cast(self(), update_advices),
@@ -104,7 +131,7 @@ init(_) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec handle_call(Request :: term(), From :: {pid(), Tag :: term()},
-    State :: term()) -> Result when
+    State :: state()) -> Result when
     Result :: {reply, Reply, NewState}
     | {reply, Reply, NewState, Timeout}
     | {reply, Reply, NewState, hibernate}
@@ -114,28 +141,37 @@ init(_) ->
     | {stop, Reason, Reply, NewState}
     | {stop, Reason, NewState},
     Reply :: term(),
-    NewState :: term(),
+    NewState :: state(),
     Timeout :: non_neg_integer() | infinity,
     Reason :: term().
-handle_call(get_nodes, _From, #state{nodes = Nodes} = State) ->
-    Response = case is_cluster_ready(State) of
-        true -> {ok, Nodes};
-        false -> {error, cluster_not_ready}
-    end,
-    {reply, Response, State};
+handle_call(get_nodes, _From, #state{current_step = init_connection} = State) ->
+    {reply, {error, cluster_not_initialized}, State};
+handle_call(get_nodes, _From, State) ->
+    {reply, {ok, get_all_nodes(State)}, State};
+
 handle_call(get_current_time, _From, State) ->
-    {reply, time_utils:system_time_millis(), State};
-handle_call(get_node_to_sync, _From, State) ->
-    Ans = get_node_to_sync(State),
-    {reply, Ans, State};
+    {reply, global_clock:timestamp_millis(), State};
+
+handle_call(cluster_status, From, #state{current_step = cluster_ready} = State) ->
+    % Spawn as getting cluster status could block cluster_manager
+    % (procedure involves calls to all node_managers)
+    spawn(fun() ->
+        gen_server:reply(From, cluster_status:get_cluster_status(get_all_nodes(State)))
+    end),
+    {noreply, State};
+handle_call(cluster_status, _From, State) ->
+    {reply, {error, cluster_not_ready}, State};
+
 handle_call(get_avg_mem_usage, _From, #state{node_states = NodeStates} = State) ->
     MemSum = lists:foldl(fun({_Node, NodeState}, Sum) ->
         Sum + NodeState#node_state.mem_usage
     end, 0, NodeStates),
-    {reply, MemSum/max(1, length(NodeStates)), State};
+    {reply, MemSum / max(1, length(NodeStates)), State};
+
 handle_call({register_singleton_module, Module, Node}, _From, State) ->
     {Ans, NewState} = register_singleton_module(Module, Node, State),
     {reply, Ans, NewState};
+
 handle_call(_Request, _From, State) ->
     ?log_bad_request(_Request),
     {reply, wrong_request, State}.
@@ -146,27 +182,60 @@ handle_call(_Request, _From, State) ->
 %% Handling cast messages
 %% @end
 %%--------------------------------------------------------------------
--spec handle_cast(Request :: term(), State :: term()) -> Result when
+-spec handle_cast(Request :: term(), State :: state()) -> Result when
     Result :: {noreply, NewState}
     | {noreply, NewState, Timeout}
     | {noreply, NewState, hibernate}
     | {stop, Reason :: term(), NewState},
-    NewState :: term(),
+    NewState :: state(),
     Timeout :: non_neg_integer() | infinity.
 handle_cast({cm_conn_req, Node}, State) ->
     NewState = cm_conn_req(State, Node),
     {noreply, NewState};
-handle_cast({init_ok, Node}, State) ->
-    NewState = init_ok(State, Node),
+
+handle_cast({cluster_init_step_report, Node, Step, success}, #state{current_step = Step} = State) ->
+    NewState = mark_cluster_init_step_finished_for_node(Node, State),
     {noreply, NewState};
+
+handle_cast({cluster_init_step_report, Node, Step, failure}, #state{current_step = Step} = State) ->
+    NewState = handle_error(State, Node),
+    {noreply, NewState};
+
+handle_cast({cluster_init_step_report, Node, Step, Result}, State) ->
+    ?error("Unexpected cluster_init_step_report (~w ~w ~w) while in state ~tp", [
+        Node, Step, Result, State
+    ]),
+    {noreply, State};
+
+handle_cast(next_step, State) ->
+    NewState = proceed_to_next_step(State),
+    {noreply, NewState};
+
 handle_cast({heartbeat, NodeState}, State) ->
     NewState = heartbeat(State, NodeState),
     {noreply, NewState};
+
 handle_cast(update_advices, State) ->
     NewState = update_advices(State),
     {noreply, NewState};
+
+handle_cast({check_step_finished, Step, Timeout}, State) ->
+    NewState = check_step_finished(Step, State, Timeout),
+    {noreply, NewState};
+
+handle_cast(?RECOVERY_INITIALIZED(Node), State) ->
+    {noreply, handle_node_recovery_initialized(Node, State)};
+
+handle_cast(?RECOVERY_ACKNOWLEDGED(AcknowledgingNode, RecoveredNode), State) ->
+    {noreply, handle_recovery_ack(AcknowledgingNode, RecoveredNode, State)};
+
+handle_cast(?RECOVERY_FINALIZED(Node), State) ->
+    handle_node_recovery_finish(Node, State),
+    {noreply, State};
+
 handle_cast(stop, State) ->
     {stop, normal, State};
+
 handle_cast(_Request, State) ->
     ?log_bad_request(_Request),
     {noreply, State}.
@@ -177,19 +246,21 @@ handle_cast(_Request, State) ->
 %% Handling all non call/cast messages
 %% @end
 %%--------------------------------------------------------------------
--spec handle_info(Info :: timeout | term(), State :: term()) -> Result when
+-spec handle_info(Info :: timeout | term(), State :: state()) -> Result when
     Result :: {noreply, NewState}
     | {noreply, NewState, Timeout}
     | {noreply, NewState, hibernate}
     | {stop, Reason :: term(), NewState},
-    NewState :: term(),
+    NewState :: state(),
     Timeout :: non_neg_integer() | infinity.
 handle_info({timer, Msg}, State) ->
-    gen_server:cast({global, ?CLUSTER_MANAGER}, Msg),
+    gen_server:cast(self(), Msg),
     {noreply, State};
+
 handle_info({nodedown, Node}, State) ->
     NewState = node_down(Node, State),
     {noreply, NewState};
+
 handle_info(_Request, State) ->
     ?log_bad_request(_Request),
     {noreply, State}.
@@ -203,7 +274,7 @@ handle_info(_Request, State) ->
 %% with Reason. The return value is ignored.
 %% @end
 %%--------------------------------------------------------------------
--spec terminate(Reason, State :: term()) -> Any :: term() when
+-spec terminate(Reason, State :: state()) -> Any :: term() when
     Reason :: normal
     | shutdown
     | {shutdown, term()}
@@ -217,8 +288,8 @@ terminate(_Reason, _State) ->
 %% Convert process state when code is changed
 %% @end
 %%--------------------------------------------------------------------
--spec code_change(OldVsn, State :: term(), Extra :: term()) -> Result when
-    Result :: {ok, NewState :: term()} | {error, Reason :: term()},
+-spec code_change(OldVsn, State :: state(), Extra :: term()) -> Result when
+    Result :: {ok, NewState :: state()} | {error, Reason :: term()},
     OldVsn :: Vsn | {down, Vsn},
     Vsn :: term().
 code_change(_OldVsn, State, _Extra) ->
@@ -231,64 +302,140 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Receive heartbeat from node_manager
+%% Receive connection request from node_manager
 %% @end
 %%--------------------------------------------------------------------
--spec cm_conn_req(State :: #state{}, SenderNode :: node()) -> NewState :: #state{}.
-cm_conn_req(State = #state{uninitialized_nodes = InitNodes}, SenderNode) ->
-    ?info("Connection request from node: ~p", [SenderNode]),
+-spec cm_conn_req(State :: state(), SenderNode :: node()) -> NewState :: state().
+cm_conn_req(State = #state{in_progress_nodes = InProgressNodes}, SenderNode) ->
+    ?info("Connection request from node: ~tp", [SenderNode]),
+    erlang:monitor_node(SenderNode, true),
     case lists:member(SenderNode, get_all_nodes(State)) of
         true ->
-            gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, cm_conn_ack),
+            init_node_recovery(SenderNode),
             State;
         false ->
-            ?info("New node: ~p", [SenderNode]),
+            ?info("New node: ~tp", [SenderNode]),
             try
-                erlang:monitor_node(SenderNode, true),
-                NewInitNodes = add_node_to_list(SenderNode, InitNodes),
-                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, cm_conn_ack),
-                State#state{uninitialized_nodes = NewInitNodes}
+                NewInProgressNodes = add_node_to_list(SenderNode, InProgressNodes),
+                gen_server:cast({?NODE_MANAGER_NAME, SenderNode}, ?INIT_STEP_MSG(?INIT_CONNECTION)),
+                State#state{in_progress_nodes = NewInProgressNodes}
             catch
-                _:Error ->
-                    ?warning_stacktrace("Checking node ~p, in cm failed with error: ~p",
-                        [SenderNode, Error]),
+                Class:Reason:Stacktrace ->
+                    ?warning_exception(
+                        "Checking node ~tp in cm failed", [SenderNode],
+                        Class, Reason, Stacktrace
+                    ),
                     State
             end
     end.
 
+
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Receive acknowledgement of successful worker initialization on node.
+%% Marks given node ready in given step. Informs cluster manager
+%% when all nodes are ready to proceed to next step.
 %% @end
 %%--------------------------------------------------------------------
--spec init_ok(State :: #state{}, SenderNode :: node()) -> #state{}.
-init_ok(State = #state{nodes = InitializedNodes, uninitialized_nodes = UninitializedNodes}, SenderNode) ->
-    ?info("Node ~p initialized successfully.", [SenderNode]),
-    NewUninitializedNodes = lists:delete(SenderNode, UninitializedNodes),
-    NewInitializedNodes = add_node_to_list(SenderNode, InitializedNodes),
-    NewState = State#state{nodes = NewInitializedNodes, uninitialized_nodes = NewUninitializedNodes},
-    case is_cluster_ready(NewState) of
-        true -> on_cluster_ready(NewState);
-        _ -> NewState
+-spec mark_cluster_init_step_finished_for_node(node(), state()) -> state().
+mark_cluster_init_step_finished_for_node(Node, State) ->
+    #state{
+        nodes_ready_in_step = ReadyNodes,
+        in_progress_nodes = InProgressNodes,
+        current_step = Step
+    } = State,
+    NewState = State#state{
+        nodes_ready_in_step = add_node_to_list(Node, ReadyNodes),
+        in_progress_nodes = lists:delete(Node, InProgressNodes)
+    },
+    case is_cluster_ready_in_step(NewState) of
+        true ->
+            ?info("Cluster init step '~ts' complete", [Step]),
+            gen_server:cast(self(), next_step),
+            NewState;
+        false ->
+            NewState
     end.
 
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Performs actions after all expected nodes are active.
-%% Notifies nodes that cluster init is completed.
+%% Moves cluster to next step. Informs all cluster nodes.
 %% @end
 %%--------------------------------------------------------------------
--spec on_cluster_ready(#state{}) -> #state{}.
-on_cluster_ready(#state{nodes = Nodes} = State) ->
+-spec proceed_to_next_step(state()) -> state().
+proceed_to_next_step(#state{nodes_ready_in_step = Nodes, current_step = init_connection} = State) ->
     create_hash_ring(Nodes),
-    lists:foreach(fun(Node) ->
-        gen_server:cast({?NODE_MANAGER_NAME, Node}, {cluster_init_finished, Nodes})
-    end, Nodes),
-    State.
+    proceed_to_next_step_common(State);
+proceed_to_next_step(State) ->
+    proceed_to_next_step_common(State).
 
+
+%% @private
+-spec proceed_to_next_step_common(state()) -> state().
+proceed_to_next_step_common(#state{nodes_ready_in_step = Nodes, current_step = CurrentStep} = State) ->
+    NextStep = get_next_step(CurrentStep),
+    ?info("Starting new step: '~tp'", [NextStep]),
+
+    gen_server:cast(self(), {check_step_finished, NextStep, ?STEP_TIMEOUT(NextStep) div 1000}),
+    case NextStep of
+        ?CLUSTER_READY ->
+            State#state{current_step = NextStep};
+        _ ->
+            send_to_nodes(Nodes, ?INIT_STEP_MSG(NextStep)),
+            State#state{nodes_ready_in_step = [], in_progress_nodes = Nodes, current_step = NextStep}
+    end.
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handles error on one of cluster's nodes.
+%% @end
+%%--------------------------------------------------------------------
+-spec handle_error(state(), node()) -> state().
+handle_error(#state{current_step = Step} = State, Node) ->
+    tear_down_cluster(State, "Cluster init failure - error in step '~w' on node ~w", [Step, Node]).
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Checks whether given step is finished.
+%% Stops all cluster nodes when cluster initialization is not finished in given step.
+%% In ready step checks cluster status.
+%% @end
+%%--------------------------------------------------------------------
+-spec check_step_finished(cluster_init_step(), state(), Timeout :: non_neg_integer()) -> state().
+check_step_finished(Step, #state{in_progress_nodes = Nodes} = State, 0) ->
+    tear_down_cluster(State, "Cluster init failure - timeout in step '~w' on nodes: ~w", [Step, Nodes]);
+check_step_finished(?CLUSTER_READY, State, Timeout) ->
+    case cluster_status:get_cluster_status(get_all_nodes(State), cluster_manager_connection) of
+        {ok, {ok, _NodeStatuses}} ->
+            ?info("Cluster ready"),
+            send_to_nodes(get_all_nodes(State), ?INIT_STEP_MSG(?CLUSTER_READY)),
+            State;
+        {ok, {GenericError, NodeStatuses}}  ->
+            ?debug("Internal healthcheck failed: ~tp", [{GenericError, NodeStatuses}]),
+            erlang:send_after(timer:seconds(1), self(), {timer, {check_step_finished, ?CLUSTER_READY, Timeout - 1}}),
+            State;
+        Error ->
+            tear_down_cluster(State, "Internal healthcheck failed: ~tp", [Error])
+    end;
+
+check_step_finished(Step, #state{current_step = Step} = State, Timeout) ->
+    case is_cluster_ready_in_step(State) of
+        true -> State;
+        false ->
+            erlang:send_after(timer:seconds(1), self(),
+                {timer, {check_step_finished, Step, Timeout - 1}}),
+            State
+    end;
+check_step_finished(Step, #state{current_step = CurrentStep} = State, _Timeout)
+    when Step =/= CurrentStep ->
+    % Cluster already in next step
+    State.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -299,11 +446,7 @@ on_cluster_ready(#state{nodes = Nodes} = State) ->
 -spec create_hash_ring([node()]) -> ok.
 create_hash_ring(Nodes) ->
     ?info("Initializing Hash Ring."),
-    consistent_hasing:init(lists:usort(Nodes)),
-    CHash = consistent_hasing:get_chash_ring(),
-    lists:foreach(fun(Node) ->
-        rpc:call(Node, consistent_hasing, set_chash_ring, [CHash])
-    end, Nodes),
+    consistent_hashing:init(lists:usort(Nodes), ?KEY_ASSOCIATED_NODES),
     ?info("Hash ring initialized successfully.").
 
 
@@ -313,12 +456,12 @@ create_hash_ring(Nodes) ->
 %% Receive heartbeat from a node manager and store its state.
 %% @end
 %%--------------------------------------------------------------------
--spec heartbeat(State :: #state{}, NodeState :: #node_state{}) -> #state{}.
+-spec heartbeat(State :: state(), NodeState :: #node_state{}) -> state().
 heartbeat(#state{node_states = NodeStates, last_heartbeat = LastHeartbeat} = State, NodeState) ->
     #node_state{node = Node} = NodeState,
-    ?debug("Heartbeat from node ~p", [Node]),
+    ?debug("Heartbeat from node ~tp", [Node]),
     NewNodeStates = [{Node, NodeState} | proplists:delete(Node, NodeStates)],
-    NewLastHeartbeat = [{Node, erlang:monotonic_time(milli_seconds)} | proplists:delete(Node, LastHeartbeat)],
+    NewLastHeartbeat = [{Node, global_clock:timestamp_millis()} | proplists:delete(Node, LastHeartbeat)],
     State#state{node_states = NewNodeStates, last_heartbeat = NewLastHeartbeat}.
 
 %%--------------------------------------------------------------------
@@ -327,7 +470,7 @@ heartbeat(#state{node_states = NodeStates, last_heartbeat = LastHeartbeat} = Sta
 %% Calculate current load balancing advices, broadcast them and schedule next update.
 %% @end
 %%--------------------------------------------------------------------
--spec update_advices(State :: #state{}) -> #state{}.
+-spec update_advices(State :: state()) -> state().
 update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbeats, lb_state = LBState,
     singleton_modules = Singletons} = State) ->
     ?debug("Updating load balancing advices"),
@@ -338,13 +481,13 @@ update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbea
             State;
         _ ->
             {_, NodeStates} = lists:unzip(NodeStatesMap),
-            Now = erlang:monotonic_time(milli_seconds),
+            Now = global_clock:timestamp_millis(),
             % Check which node managers are late with heartbeat ( > 2 * monitoring interval).
             % Assume full CPU usage on them.
             PrecheckedNodeStates = lists:map(
                 fun(#node_state{node = Node} = NodeState) ->
                     LastHeartbeat = (Now -
-                        proplists:get_value(Node, LastHeartbeats, erlang:monotonic_time(milli_seconds))),
+                        proplists:get_value(Node, LastHeartbeats, global_clock:timestamp_millis())),
                     case LastHeartbeat > 2 * Interval of
                         true -> NodeState#node_state{cpu_usage = 100.0};
                         false -> NodeState
@@ -355,7 +498,7 @@ update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbea
             % Send LB advices
             lists:foreach(
                 fun({Node, AdviceForDispatchers}) ->
-                    gen_server:cast({?NODE_MANAGER_NAME, Node}, {update_lb_advices, AdviceForDispatchers})
+                    gen_server:cast({?NODE_MANAGER_NAME, Node}, ?UPDATE_LB_ADVICES(AdviceForDispatchers))
                 end, AdvicesForDispatchers),
             State#state{lb_state = NewState}
     end.
@@ -366,8 +509,8 @@ update_advices(#state{node_states = NodeStatesMap, last_heartbeat = LastHeartbea
 %% Checks if singleton module can be started.
 %% @end
 %%--------------------------------------------------------------------
--spec register_singleton_module(Module :: atom(), Node :: node(), State :: #state{}) ->
-    {ok | already_started, #state{}}.
+-spec register_singleton_module(Module :: atom(), Node :: node(), State :: state()) ->
+    {ok | already_started, state()}.
 register_singleton_module(Module, Node, #state{singleton_modules = Singletons} = State) ->
     UsedNode = proplists:get_value(Module, Singletons),
     case UsedNode of
@@ -386,49 +529,17 @@ register_singleton_module(Module, Node, #state{singleton_modules = Singletons} =
 %% Delete node from active nodes list, change state num and inform everone
 %% @end
 %%--------------------------------------------------------------------
--spec node_down(Node :: atom(), State :: #state{}) -> #state{}.
+-spec node_down(Node :: atom(), State :: state()) -> state().
 node_down(Node, State) ->
-    #state{nodes = Nodes,
-        uninitialized_nodes = InitNodes,
-        node_states = NodeStates,
-        singleton_modules = Singletons
-    } = State,
-    ?error("Node down: ~p", [Node]),
-    NewNodes = Nodes -- [Node],
-    NewInitNodes = InitNodes -- [Node],
-    NewNodeStates = proplists:delete(Node, NodeStates),
-    NewSingletons = lists:map(fun({M, N}) ->
-        case N of
-            Node -> {M, undefined};
-            _ -> {M, N}
-        end
-    end, Singletons),
-    State#state{nodes = NewNodes,
-        uninitialized_nodes = NewInitNodes,
-        node_states = NewNodeStates,
-        singleton_modules = NewSingletons
-    }.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Get node that can be used by new nodes to synchronize with
-%% (i. e. attach to mnesia cluster). This node should be one of active
-%% nodes of existing cluster, or if there isn't any, the first of nodes
-%% that are initializing.
-%%
-%% In some cases synchronization requires waiting for this node to finish
-%% initialization process. It is up to caller to wait and ensure that he can
-%% safely synchronize.
-%% @end
-%%--------------------------------------------------------------------
--spec get_node_to_sync(#state{}) -> {ok, node()} | {error, term()}.
-get_node_to_sync(#state{nodes = [], uninitialized_nodes = []}) ->
-    {error, no_nodes_connected};
-get_node_to_sync(#state{nodes = [FirstNode | _]}) ->
-    {ok, FirstNode};
-get_node_to_sync(#state{uninitialized_nodes = [FirstInitNode | _]}) ->
-    {ok, FirstInitNode}.
+    case consistent_hashing:get_nodes_assigned_per_label() of
+        1 ->
+            tear_down_cluster(State, "Last cluster node down: ~tp", [Node]);
+        _ ->
+            ?error("Node down: ~tp", [Node]),
+            ok = consistent_hashing:report_node_failure(Node),
+            send_to_nodes(get_all_nodes(State) -- [Node], ?NODE_DOWN(Node)),
+            State
+    end.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -463,11 +574,11 @@ get_worker_num() ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Check if number of nodes is correct (matches configured).
+%% Check if number of ready nodes is correct (matches configured).
 %% @end
 %%--------------------------------------------------------------------
--spec is_cluster_ready(#state{}) -> boolean().
-is_cluster_ready(#state{nodes = Nodes}) ->
+-spec is_cluster_ready_in_step(state()) -> boolean().
+is_cluster_ready_in_step(#state{nodes_ready_in_step = Nodes}) ->
     get_worker_num() == length(Nodes).
 
 
@@ -477,6 +588,82 @@ is_cluster_ready(#state{nodes = Nodes}) ->
 %% Get all connected nodes
 %% @end
 %%--------------------------------------------------------------------
--spec get_all_nodes(#state{}) -> [node()].
-get_all_nodes(#state{nodes = Nodes, uninitialized_nodes = InitNodes}) ->
-    lists:usort(Nodes ++ InitNodes).
+-spec get_all_nodes(state()) -> [node()].
+get_all_nodes(#state{nodes_ready_in_step = Nodes, in_progress_nodes = InProgressNodes}) ->
+    lists:usort(Nodes ++ InProgressNodes).
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Sends given message to node manager on all given nodes.
+%% @end
+%%--------------------------------------------------------------------
+-spec send_to_nodes([node()], any()) -> ok.
+send_to_nodes(Nodes, Msg) ->
+    lists:foreach(fun(Node) ->
+        gen_server:cast({?NODE_MANAGER_NAME, Node}, Msg)
+    end, Nodes).
+
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Sends stop signal to all nodes in the cluster with given readable reason.
+%% The cluster manager is not stopped and its state is reset.
+%% @end
+%%--------------------------------------------------------------------
+-spec tear_down_cluster(state(), string(), list()) -> state().
+tear_down_cluster(State, ReasonFormatString, ReasonFormatArgs) ->
+    ReasonMsg = str_utils:format(ReasonFormatString, ReasonFormatArgs),
+    ?critical(ReasonMsg),
+    ?critical("Tearing down the cluster, sending a stop signal to all nodes..."),
+    send_to_nodes(get_all_nodes(State), ?FORCE_STOP(ReasonMsg)),
+    consistent_hashing:cleanup(),
+    #state{nodes_ready_in_step = [], in_progress_nodes = []}.
+
+
+%% @private
+-spec get_next_step(cluster_init_step()) -> cluster_init_step().
+get_next_step(?INIT_CONNECTION) -> ?START_DEFAULT_WORKERS;
+get_next_step(?START_DEFAULT_WORKERS) -> ?PREPARE_FOR_CUSTOM_WORKERS;
+get_next_step(?PREPARE_FOR_CUSTOM_WORKERS) -> ?START_CUSTOM_WORKERS;
+get_next_step(?START_CUSTOM_WORKERS) -> ?PREPARE_FOR_UPGRADE;
+get_next_step(?PREPARE_FOR_UPGRADE) -> ?UPGRADE_CLUSTER;
+get_next_step(?UPGRADE_CLUSTER) -> ?PREPARE_FOR_LISTENERS_START;
+get_next_step(?PREPARE_FOR_LISTENERS_START) -> ?START_LISTENERS;
+get_next_step(?START_LISTENERS) -> ?CLUSTER_READY.
+
+%%%===================================================================
+%%% Node recovery handling
+%%%===================================================================
+
+-spec init_node_recovery(node()) -> ok.
+init_node_recovery(Node) ->
+    ok = consistent_hashing:report_node_recovery(Node),
+    ok = consistent_hashing:replicate_ring_to_nodes([Node]),
+    gen_server:cast({?NODE_MANAGER_NAME, Node}, ?INITIALIZE_RECOVERY),
+    ?info("Recovery initialized on node: ~tp", [Node]),
+    ok.
+
+-spec handle_node_recovery_initialized(node(), state()) -> state().
+handle_node_recovery_initialized(Node, #state{pending_recovery_acknowledgements = AcknowledgementsMap} = State) ->
+    OtherNodes = get_all_nodes(State) -- [Node],
+    send_to_nodes(OtherNodes, ?NODE_UP(Node)),
+    State#state{pending_recovery_acknowledgements = AcknowledgementsMap#{Node => OtherNodes}}.
+
+-spec handle_recovery_ack(node(), node(), state()) -> state().
+handle_recovery_ack(AcknowledgingNode, RecoveredNode,
+    #state{pending_recovery_acknowledgements = AcknowledgementsMap} = State) ->
+    PendingNodes = maps:get(RecoveredNode, AcknowledgementsMap, []),
+    case lists:delete(AcknowledgingNode, PendingNodes) of
+        [] ->
+            gen_server:cast({?NODE_MANAGER_NAME, RecoveredNode}, ?FINALIZE_RECOVERY),
+            State#state{pending_recovery_acknowledgements = maps:remove(RecoveredNode, AcknowledgementsMap)};
+        StillPendingNodes ->
+            State#state{pending_recovery_acknowledgements = AcknowledgementsMap#{RecoveredNode => StillPendingNodes}}
+    end.
+
+-spec handle_node_recovery_finish(node(), state()) -> ok.
+handle_node_recovery_finish(Node, State) ->
+    send_to_nodes(get_all_nodes(State) -- [Node], ?NODE_READY(Node)).
